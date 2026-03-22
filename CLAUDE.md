@@ -25,9 +25,19 @@ This server runs long-form video upscaling jobs. An agent working in this repo i
 
 ---
 
-## Step 1 — Choose the right script
+## Step 1 — Confirm target resolution
 
-There are four purpose-built scripts. Pick based on **content type** and **aspect ratio**.
+**If the user did not specify a resolution (1080p or 4K), ask before proceeding.** Do not assume.
+
+Supported targets:
+- **1080p** — faster, ~6–10 hours for a 90-min film; recommended for general library upscaling
+- **4K** — ~2× slower than 1080p; recommended for favourite titles on large screens
+
+---
+
+## Step 2 — Choose the right script
+
+Pick based on **resolution**, **content type**, and **aspect ratio**.
 
 ### Determine aspect ratio
 
@@ -52,26 +62,41 @@ When in doubt about a title, ask the user before starting a long job.
 
 ### Script selection
 
-| Content type | Aspect ratio | Script |
-|---|---|---|
-| Animated | 16:9 | `scripts/upscale-anime-16x9.sh` |
-| Animated | 4:3 | `scripts/upscale-anime-4x3.sh` |
-| Live-action | 16:9 | `scripts/upscale-live-16x9.sh` |
-| Live-action | 4:3 | `scripts/upscale-live-4x3.sh` |
+| Resolution | Content type | Aspect ratio | Script |
+|---|---|---|---|
+| 1080p | Animated | 16:9 | `scripts/upscale-anime-16x9.sh` |
+| 1080p | Animated | 4:3 | `scripts/upscale-anime-4x3.sh` |
+| 1080p | Live-action | 16:9 | `scripts/upscale-live-16x9.sh` |
+| 1080p | Live-action | 4:3 | `scripts/upscale-live-4x3.sh` |
+| 4K | Animated | 16:9 | `scripts/upscale-anime-16x9-4k.sh` |
+| 4K | Animated | 4:3 | `scripts/upscale-anime-4x3-4k.sh` |
+| 4K | Live-action | 16:9 | `scripts/upscale-live-16x9-4k.sh` |
+| 4K | Live-action | 4:3 | `scripts/upscale-live-4x3-4k.sh` |
 
 ### What each script does internally
 
-- **Anime scripts** use `realesr-animevideov3-x2` (2x, trained on video frames — better temporal consistency than waifu2x cunet)
-- **Live-action scripts** use `realesrgan-x4plus` (4x)
-- All scripts pre-scale frames to the exact half/quarter resolution before upscaling so output lands at the target without a lossy post-downscale
+**1080p scripts:**
+- Anime: `realesr-animevideov3-x2` (2x, trained on video frames)
+- Live-action: `realesrgan-x4plus` (4x)
+- Pre-scale → upscale pipelines:
   - Anime 16:9: 960×540 → 2x → **1920×1080**
   - Anime 4:3: 720×540 → 2x → **1440×1080**
   - Live 16:9: 480×270 → 4x → **1920×1080**
   - Live 4:3: 360×270 → 4x → **1440×1080**
 
+**4K scripts:**
+- Anime: two-pass with `realesr-animevideov3-x2` (2x × 2 passes)
+  - Anime 16:9: 960×540 → 2x → 1920×1080 → 2x → **3840×2160**
+  - Anime 4:3: 720×540 → 2x → 1440×1080 → 2x → **2880×2160**
+- Live-action: single-pass with `realesrgan-x4plus` (4x from double the 1080p input res)
+  - Live 16:9: 960×540 → 4x → **3840×2160**
+  - Live 4:3: 720×540 → 4x → **2880×2160**
+- Default chunk size is **2 minutes** (4K output frames are ~4× larger than 1080p; needs more /tmp headroom)
+- Anime 4K scripts create a video-only intermediate MKV in `/tmp` between passes; audio is muxed from the original source in the final step
+
 ---
 
-## Step 2 — Launch a job
+## Step 3 — Launch a job
 
 Always use `nohup` so the job survives SSH disconnects:
 
@@ -88,7 +113,7 @@ Save the PID. Log file captures all output for monitoring.
 
 ---
 
-## Step 3 — Monitor progress
+## Step 4 — Monitor progress
 
 ### Check if job is running
 
@@ -105,7 +130,7 @@ tail -f /home/evanna/upscale-title.log
 ### Read current chunk progress from log
 
 ```bash
-grep "^\[Chunk" /home/evanna/upscale-title.log | tail -5
+grep "^\[" /home/evanna/upscale-title.log | tail -5
 ```
 
 ### Check disk space before/during (temp frames use /tmp)
@@ -114,11 +139,15 @@ grep "^\[Chunk" /home/evanna/upscale-title.log | tail -5
 df -h /tmp /mnt/jellyfin-movies
 ```
 
-A 5-minute chunk of PNG frames at 960×540 is roughly 1–3 GB. Ensure `/tmp` has at least 5 GB free before starting.
+**Minimum free space in `/tmp` before starting:**
+- 1080p jobs: at least 5 GB (5-min chunks at 960×540)
+- 4K jobs: at least 25 GB (2-min chunks; 4K output frames are much larger)
+
+For 4K anime jobs, also account for the intermediate 1080p MKV in `/tmp` (~3–6 GB for a feature film).
 
 ---
 
-## Step 4 — After completion
+## Step 5 — After completion
 
 The script prints `=== Done! ===` and runs ffprobe on the output. Verify:
 
@@ -127,9 +156,14 @@ ffprobe "/mnt/jellyfin-movies/Title (Year) [upscaled].mkv" 2>&1 | grep -E "Durat
 ls -lh "/mnt/jellyfin-movies/Title (Year) [upscaled].mkv"
 ```
 
-Expected output resolution:
-- 1920×1080 for 16:9 content
-- 1440×1080 for 4:3 content
+Expected output resolutions:
+
+| Resolution | 16:9 | 4:3 |
+|---|---|---|
+| 1080p | 1920×1080 | 1440×1080 |
+| 4K | 3840×2160 | 2880×2160 |
+
+**4:3 output is intentionally narrower than 3840×2160** — this is correct. It preserves the 4:3 aspect ratio at 4K height. Pillarboxing is the player's job.
 
 ---
 
@@ -139,6 +173,14 @@ If a job dies mid-run, the segment files in `/tmp/upscale_segments_<PID>/` may s
 
 ```bash
 ls /tmp/upscale_segments_*/
+```
+
+For 4K anime jobs, also check for the intermediate MKV:
+
+```bash
+ls /tmp/upscale_intermediate_*.mkv
+ls /tmp/upscale_p1_segments_*/
+ls /tmp/upscale_p2_segments_*/
 ```
 
 The last complete segment number and timestamp in the log tells you where it stopped:
@@ -152,7 +194,9 @@ To resume, write a targeted resume script modelled on `scripts/upscale-resume.sh
 - Last completed chunk number and its end timestamp
 - `FPS_ROUNDED` and `DURATION` (printed near the top of the log)
 
-Do **not** delete `/tmp/upscale_segments_*` dirs unless the job completed successfully and the output file is verified.
+If a 4K anime job failed partway through pass 2, the intermediate MKV may still be intact in `/tmp`. Check it with ffprobe before deciding whether to restart from pass 1 or pass 2.
+
+Do **not** delete `/tmp/upscale_segments_*` or `/tmp/upscale_intermediate_*` unless the job completed successfully and the output file is verified.
 
 ---
 
@@ -161,28 +205,37 @@ Do **not** delete `/tmp/upscale_segments_*` dirs unless the job completed succes
 - **Only one GPU job at a time.** `realesrgan-ncnn-vulkan` and `waifu2x-ncnn-vulkan` both claim the full GPU. Running two simultaneously will cause OOM or severe slowdown. Always check `ps aux | grep -E "realesrgan|waifu2x"` before launching.
 - **Do not skip verification.** Always ffprobe the output before considering a job done.
 - **Do not delete the input file** until the output is verified correct.
-- **4:3 output is intentionally 1440×1080**, not 1920×1080. This is correct — pillarboxing is the player's job.
+- **4:3 output is intentionally narrower**, not 1920×1080 or 3840×2160. This is correct.
 
 ---
 
 ## Quick reference — full example
 
 ```bash
+# 0. Confirm resolution with user if not specified
+
 # 1. Check aspect ratio
 ffprobe -v error -select_streams v:0 \
   -show_entries stream=display_aspect_ratio \
   -of default=noprint_wrappers=1:nokey=1 \
   "/mnt/jellyfin-movies/Spirited Away (2001).mkv"
-# → 16:9, animated content → use upscale-anime-16x9.sh
+# → 16:9, animated content → upscale-anime-16x9.sh (1080p) or upscale-anime-16x9-4k.sh (4K)
 
 # 2. Check nothing is already running
 ps aux | grep -E "realesrgan|waifu2x"
 
-# 3. Check disk space
+# 3. Check disk space (25 GB free in /tmp for 4K jobs)
 df -h /tmp /mnt/jellyfin-movies
 
-# 4. Launch
+# 4. Launch (example: 1080p)
 nohup bash /home/evanna/waifu2x-upscale/scripts/upscale-anime-16x9.sh \
+  "/mnt/jellyfin-movies/Spirited Away (2001).mkv" \
+  "/mnt/jellyfin-movies/Spirited Away (2001) [upscaled].mkv" \
+  >> /home/evanna/upscale-spirited-away.log 2>&1 &
+echo "PID: $!"
+
+# 4. Launch (example: 4K)
+nohup bash /home/evanna/waifu2x-upscale/scripts/upscale-anime-16x9-4k.sh \
   "/mnt/jellyfin-movies/Spirited Away (2001).mkv" \
   "/mnt/jellyfin-movies/Spirited Away (2001) [upscaled].mkv" \
   >> /home/evanna/upscale-spirited-away.log 2>&1 &
