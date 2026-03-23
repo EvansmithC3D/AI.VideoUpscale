@@ -77,12 +77,12 @@ When in doubt about a title, ask the user before starting a long job.
 
 **1080p scripts:**
 - Anime: `realesr-animevideov3-x2` (2x, trained on video frames)
-- Live-action: `realesrgan-x4plus` (4x)
+- Live-action: `realesrgan-x2plus` (2x, live-action tailored)
 - Pre-scale → upscale pipelines:
   - Anime 16:9: 960×540 → 2x → **1920×1080**
   - Anime 4:3: 720×540 → 2x → **1440×1080**
-  - Live 16:9: 480×270 → 4x → **1920×1080**
-  - Live 4:3: 360×270 → 4x → **1440×1080**
+  - Live 16:9: 960×540 → 2x → **1920×1080**
+  - Live 4:3: 720×540 → 2x → **1440×1080**
 
 **4K scripts:**
 - Anime: two-pass with `realesr-animevideov3-x2` (2x × 2 passes)
