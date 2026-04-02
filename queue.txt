@@ -1,0 +1,49 @@
+# Upscale queue — edit TYPE and RESOLUTION before the daemon picks up a title
+# STATUS|TYPE|RESOLUTION|/absolute/path/to/file.mkv
+# STATUS     : pending, done, error, skip
+# TYPE       : live, anime
+# RESOLUTION : 1080p, 4k
+pending|live|1080p|/mnt/jellyfin-movies/Manhunter (1986).mkv
+pending|live|1080p|/mnt/jellyfin-movies/12 Angry Men (1957).mkv
+pending|live|1080p|/mnt/jellyfin-movies/12 Years a Slave (2013).mkv
+pending|live|1080p|/mnt/jellyfin-movies/2001 A Space Odyssey (1968).mkv
+
+pending|live|1080p|/mnt/jellyfin-movies/American Psycho (2000).mkv
+pending|live|1080p|/mnt/jellyfin-movies/An American Haunting (2005).mkv
+pending|live|1080p|/mnt/jellyfin-movies/Apocalypse Now Redux (2001).mkv
+pending|live|1080p|/mnt/jellyfin-movies/Catch Me If You Can (2002).mkv
+pending|live|1080p|/mnt/jellyfin-movies/Challengers (2024).mkv
+pending|live|1080p|/mnt/jellyfin-movies/Dark Was the Night (2014).mkv
+pending|live|1080p|/mnt/jellyfin-movies/Dumb and Dumber (1994).mkv
+pending|live|1080p|/mnt/jellyfin-movies/Dumb and Dumberer - When Harry Met Lloyd (2003).mkv
+pending|live|1080p|/mnt/jellyfin-movies/Evan Almighty (2007).mkv
+pending|live|1080p|/mnt/jellyfin-movies/Everest (2015).mkv
+pending|live|1080p|/mnt/jellyfin-movies/Freedomland (2006).mkv
+pending|live|1080p|/mnt/jellyfin-movies/Full Metal Jacket (1987).mkv
+pending|live|1080p|/mnt/jellyfin-movies/Goodfellas (1990).mkv
+pending|live|1080p|/mnt/jellyfin-movies/Jeff Dunham's Very Special Christmas Special (2008).mkv
+pending|live|1080p|/mnt/jellyfin-movies/Men in Black II (2002).mkv
+pending|live|1080p|/mnt/jellyfin-movies/My Week with Marilyn (2011).mkv
+pending|anime|1080p|/mnt/jellyfin-movies/Pokemon 3 The Movie (2001).mkv
+pending|anime|1080p|/mnt/jellyfin-movies/Pokemon Movies 1-3 Collection Bonus (2001).mkv
+pending|anime|1080p|/mnt/jellyfin-movies/Pokemon The Movie 2000 (2000).mkv
+pending|anime|1080p|/mnt/jellyfin-movies/Pokemon the Movie Black - Victini and Reshiram (2011).mkv
+pending|anime|1080p|/mnt/jellyfin-movies/Pokemon the Movie Genesect and the Legend Awakened (2013).mkv
+pending|anime|1080p|/mnt/jellyfin-movies/Pokemon the Movie Kyurem vs the Sword of Justice (2012).mkv
+pending|anime|1080p|/mnt/jellyfin-movies/Pokemon the Movie White - Victini and Zekrom (2011).mkv
+pending|live|1080p|/mnt/jellyfin-movies/Regarding Henry (1991).mkv
+pending|live|1080p|/mnt/jellyfin-movies/Skyfall (2012).mkv
+pending|live|1080p|/mnt/jellyfin-movies/Star Wars Episode III Revenge of the Sith (2005).mkv
+pending|live|1080p|/mnt/jellyfin-movies/Star Wars Episode IV - A New Hope (1977).mkv
+pending|live|1080p|/mnt/jellyfin-movies/Star Wars Episode VI - Return of the Jedi (1983).mkv
+pending|live|1080p|/mnt/jellyfin-movies/Star Wars Episode V - The Empire Strikes Back (1980).mkv
+pending|live|1080p|/mnt/jellyfin-movies/The Deer Hunter (1978).mkv
+pending|live|1080p|/mnt/jellyfin-movies/The Forgotten (2004).mkv
+pending|live|1080p|/mnt/jellyfin-movies/The Frozen Ground (2013).mkv
+pending|live|1080p|/mnt/jellyfin-movies/The Hunger Games (2012).mkv
+pending|live|1080p|/mnt/jellyfin-movies/The Prestige (2006).mkv
+pending|live|1080p|/mnt/jellyfin-movies/The Shawshank Redemption (1994).mkv
+pending|live|1080p|/mnt/jellyfin-movies/The Shining (1980).mkv
+pending|live|1080p|/mnt/jellyfin-movies/The Terminator (1984).mkv
+pending|live|1080p|/mnt/jellyfin-movies/Valerian and the City of a Thousand Planets (2017).mkv
+pending|live|1080p|/mnt/jellyfin-movies/Amadeus (1984).mkv
