@@ -240,9 +240,10 @@ while true; do
     # 1. Discover new files
     scan_new_files
 
-    # 2. Check GPU is free
-    if pgrep -f realesrgan-ncnn-vulkan > /dev/null || pgrep -f waifu2x-ncnn-vulkan > /dev/null; then
-        log "GPU busy — waiting..."
+    # 2. Check no upscale job is already running (check the script, not just realesrgan,
+    #    since the GPU is also held between chunks during ffmpeg extract/encode phases)
+    if pgrep -f "upscale-.*\.sh" > /dev/null || pgrep -f realesrgan-ncnn-vulkan > /dev/null || pgrep -f waifu2x-ncnn-vulkan > /dev/null; then
+        log "Job already running — waiting..."
         sleep "$SCAN_INTERVAL"
         continue
     fi
