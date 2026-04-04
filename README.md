@@ -20,9 +20,11 @@ Jobs are managed by a queue daemon that reads `queue.txt` and processes one film
 | `upscale-live-16x9-4k.sh` | Live-action | 16:9 | 3840×2160 | EGVSR | PyTorch/ROCm |
 | `upscale-live-4x3-4k.sh` | Live-action | 4:3 | 2880×2160 | EGVSR | PyTorch/ROCm |
 
-All scripts share the same signature:
+All scripts share the same signature. Always use `nohup` so the job survives SSH disconnects:
 ```bash
-bash scripts/upscale-live-16x9.sh "input.mkv" "output.mkv" [chunk_minutes]
+nohup bash scripts/upscale-live-16x9.sh "input.mkv" "output.mkv" [chunk_minutes] \
+  >> /home/evanna/upscale-title.log 2>&1 &
+echo "PID: $!"
 ```
 
 ## Queue
