@@ -1,5 +1,5 @@
 #!/bin/bash
-# Upscale live-action fullscreen (4:3) MKV to 4K (2880x2160) using Real-ESRGAN x4plus
+# Upscale live-action fullscreen (4:3) MKV to 4K (2880x2160) using EGVSR (PyTorch/ROCm)
 # Single pass: pre-scales to 720x540 so 4x output lands exactly at 2880x2160
 # Note: 2880x2160 is correct 4:3 at 4K height — player handles pillarboxing
 # Default chunk is 2 minutes — 4K output frames are ~4x larger than 1080p, needs more /tmp headroom
@@ -12,8 +12,7 @@ CHUNK_MIN="${3:-2}"
 QUARTER_W=720
 QUARTER_H=540
 SCALE=4
-MODEL="realesrgan-x4plus"
-MODEL_PATH="/usr/local/share/realesrgan-models"
+SCRIPT_DIR="$(dirname "$(readlink -f "$0")")"
 WORK_DIR="/tmp/upscale_work_$$"
 SEGMENTS_DIR="/tmp/upscale_segments_$$"
 
@@ -25,7 +24,7 @@ fi
 echo "=== Live-Action 4:3 4K Upscaler: source → 2880x2160 ==="
 echo "Input:    $INPUT"
 echo "Output:   $OUTPUT"
-echo "Model:    $MODEL (4x, live-action)"
+echo "Model:    EGVSR (4x, live-action, PyTorch/ROCm)"
 echo "Pipeline: ${QUARTER_W}x${QUARTER_H} → 4x → $((QUARTER_W * SCALE))x$((QUARTER_H * SCALE))"
 echo "Chunk:    ${CHUNK_MIN} minutes"
 echo ""
@@ -76,16 +75,16 @@ while [ "$START" -lt "$DURATION" ]; do
         continue
     fi
 
-    # -t 400: same tile size as 1080p live script — VRAM is tile-bound, not frame-size-bound
-    realesrgan-ncnn-vulkan \
-        -i "$WORK_DIR/frames" \
-        -o "$WORK_DIR/upscaled" \
-        -n "$MODEL" \
-        -m "$MODEL_PATH" \
-        -s "$SCALE" \
-        -t 400 \
-        -g 0 -j 2:4:4 \
-        -f png 2>&1 | grep -v "^$" | tail -3
+    HSA_OVERRIDE_GFX_VERSION=10.3.0 python3 "$SCRIPT_DIR/egvsr-upscale.py" \
+        --input "$WORK_DIR/frames" \
+        --output "$WORK_DIR/upscaled"
+
+    UPSCALED_COUNT=$(ls "$WORK_DIR/upscaled" | wc -l)
+    echo "  Upscaled frames: $UPSCALED_COUNT"
+    if [ "$UPSCALED_COUNT" -eq 0 ]; then
+        echo "  ERROR: realesrgan produced no output frames — aborting"
+        exit 1
+    fi
 
     ffmpeg -y \
         -framerate "$FPS_ROUNDED" \

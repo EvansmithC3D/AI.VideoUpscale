@@ -1,5 +1,5 @@
 #!/bin/bash
-# Upscale a live-action fullscreen (4:3) MKV to 1080p using Real-ESRGAN x2plus
+# Upscale a live-action fullscreen (4:3) MKV to 1080p using Real-ESRGAN x2plus (PyTorch/ROCm)
 # Pre-scales to 720x540 so 2x output lands exactly at 1440x1080
 # Usage: ./upscale-live-4x3.sh "input.mkv" "output.mkv" [chunk_minutes=5]
 
@@ -10,8 +10,8 @@ CHUNK_MIN="${3:-5}"
 HALF_W=720
 HALF_H=540
 SCALE=2
-MODEL="realesrgan-x2plus"
-MODEL_PATH="/usr/local/share/realesrgan-models"
+MODEL="x2plus"
+SCRIPT_DIR="$(dirname "$(readlink -f "$0")")"
 WORK_DIR="/tmp/upscale_work_$$"
 SEGMENTS_DIR="/tmp/upscale_segments_$$"
 
@@ -23,7 +23,7 @@ fi
 echo "=== Live-Action 4:3 Upscaler: 540p → 1440x1080 ==="
 echo "Input:    $INPUT"
 echo "Output:   $OUTPUT"
-echo "Model:    $MODEL (2x, live-action)"
+echo "Model:    RealESRGAN-$MODEL (2x, live-action, PyTorch/ROCm)"
 echo "Pipeline: ${HALF_W}x${HALF_H} → 2x → $((HALF_W * SCALE))x$((HALF_H * SCALE))"
 echo "Chunk:    ${CHUNK_MIN} minutes"
 echo ""
@@ -75,16 +75,17 @@ while [ "$START" -lt "$DURATION" ]; do
         continue
     fi
 
-    # Use -s 2 to match the x2plus model's native scale
-    realesrgan-ncnn-vulkan \
-        -i "$WORK_DIR/frames" \
-        -o "$WORK_DIR/upscaled" \
-        -n "$MODEL" \
-        -m "$MODEL_PATH" \
-        -s "$SCALE" \
-        -t 0 \
-        -g 0 -j 2:4:4 \
-        -f png 2>&1 | grep -v "^$" | tail -3
+    HSA_OVERRIDE_GFX_VERSION=10.3.0 python3 "$SCRIPT_DIR/realesrgan-upscale.py" \
+        --model "$MODEL" \
+        --input "$WORK_DIR/frames" \
+        --output "$WORK_DIR/upscaled"
+
+    UPSCALED_COUNT=$(ls "$WORK_DIR/upscaled" | wc -l)
+    echo "  Upscaled frames: $UPSCALED_COUNT"
+    if [ "$UPSCALED_COUNT" -eq 0 ]; then
+        echo "  ERROR: realesrgan produced no output frames — aborting"
+        exit 1
+    fi
 
     ffmpeg -y \
         -framerate "$FPS_ROUNDED" \
