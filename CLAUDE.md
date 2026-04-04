@@ -89,7 +89,7 @@ When in doubt about a title, ask the user before starting a long job.
 - EGVSR is a frame-recurrent model (processes frames sequentially; `hr_prev` state resets at each chunk boundary — first ~10 frames of each chunk are slightly softer)
 - Live 16:9: 960×540 → 4x → **3840×2160**
 - Live 4:3: 720×540 → 4x → **2880×2160**
-- Chunk size: 2 minutes
+- Chunk size: 10 minutes
 
 **Anime 1080p (ncnn-vulkan):**
 - Model: `realesr-animevideov3-x2` (2x, trained on video frames)
