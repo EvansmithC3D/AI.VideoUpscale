@@ -187,7 +187,7 @@ update_status() {
     tmp=$(mktemp)
     while IFS= read -r line; do
         if [[ "$line" == *"|$input" ]]; then
-            echo "${new_status}${line#*|}"
+            echo "${new_status}|${line#*|}"
         else
             echo "$line"
         fi

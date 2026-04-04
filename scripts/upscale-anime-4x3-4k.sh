@@ -84,7 +84,7 @@ while [ "$START" -lt "$DURATION" ]; do
         -n "$MODEL" \
         -m "$MODEL_PATH" \
         -s 2 \
-        -t 800 \
+        -t 0 \
         -g 0 -j 2:4:4 \
         -f png 2>&1 | grep -v "^$" | tail -3
 
@@ -156,7 +156,7 @@ while [ "$START" -lt "$DURATION2" ]; do
         -n "$MODEL" \
         -m "$MODEL_PATH" \
         -s 2 \
-        -t 800 \
+        -t 0 \
         -g 0 -j 2:4:4 \
         -f png 2>&1 | grep -v "^$" | tail -3
 
