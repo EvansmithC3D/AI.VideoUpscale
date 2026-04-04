@@ -1,12 +1,13 @@
-# waifu2x-upscale — Agent Instructions
+# AI.VideoUpscale — Agent Instructions
 
 This server runs long-form video upscaling jobs. An agent working in this repo is responsible for selecting the right script for each file, launching jobs correctly, and monitoring progress.
 
 ## Hardware
 
-- GPU: AMD Radeon RX 6700 XT, 12 GB VRAM (Vulkan via ROCm)
+- GPU: AMD Radeon RX 6700 XT, 12 GB VRAM (ROCm 6.4.4)
 - RAM: 32 GB
-- All upscaling tools use Vulkan — no CUDA/HIP needed
+- **PyTorch/ROCm requires `HSA_OVERRIDE_GFX_VERSION=10.3.0`** — the GPU is gfx1031 (RDNA2) but ROCm wheels only ship gfx1030 kernels. This env var is set automatically by all live-action scripts. Always include it when running Python inference manually.
+- Anime scripts use ncnn-vulkan (Vulkan backend, no env var needed)
 
 ## Media library
 
@@ -15,12 +16,14 @@ This server runs long-form video upscaling jobs. An agent working in this repo i
   - e.g. `Spirited Away (2001).mkv` → `Spirited Away (2001) [upscaled].mkv`
 - Logs go in `/home/evanna/` named after the title, e.g. `upscale-spirited-away.log`
 
-## Installed model paths (on the server)
+## Installed model paths
 
 | Model | Path |
 |---|---|
-| realesr-animevideov3-x2 | `/usr/local/share/realesrgan-models/` |
-| realesrgan-x4plus | `/usr/local/share/realesrgan-models/` |
+| RealESRGAN x2plus / x4plus (.pth) | `/usr/local/share/realesrgan-pth/` |
+| EGVSR weights (EGVSR_iter420000.pth) | `/usr/local/share/egvsr/` |
+| EGVSR Python codes | `/usr/local/share/egvsr/codes/` |
+| realesr-animevideov3-x2 (ncnn) | `/usr/local/share/realesrgan-models/` |
 | waifu2x models (legacy) | `/usr/local/share/models-cunet/`, etc. |
 
 ---
@@ -30,8 +33,10 @@ This server runs long-form video upscaling jobs. An agent working in this repo i
 **If the user did not specify a resolution (1080p or 4K), ask before proceeding.** Do not assume.
 
 Supported targets:
-- **1080p** — faster, ~6–10 hours for a 90-min film; recommended for general library upscaling
-- **4K** — ~2× slower than 1080p; recommended for favourite titles on large screens
+- **1080p** — live: ~3.7fps (~16hr/2hr film); anime: faster via ncnn
+- **4K** — live: ~7.8fps via EGVSR (~6–8hr/2hr film); anime: two-pass ncnn (~2× slower than 1080p anime)
+
+Note: live-action 4K (EGVSR) is *faster* than live-action 1080p (x2plus) due to EGVSR's efficient architecture.
 
 ---
 
@@ -40,8 +45,6 @@ Supported targets:
 Pick based on **resolution**, **content type**, and **aspect ratio**.
 
 ### Determine aspect ratio
-
-Run this to get the Display Aspect Ratio (DAR) of any file:
 
 ```bash
 ffprobe -v error -select_streams v:0 \
@@ -75,24 +78,30 @@ When in doubt about a title, ask the user before starting a long job.
 
 ### What each script does internally
 
-**1080p scripts:**
-- Anime: `realesr-animevideov3-x2` (2x, trained on video frames)
-- Live-action: `realesrgan-x2plus` (2x, live-action tailored)
-- Pre-scale → upscale pipelines:
-  - Anime 16:9: 960×540 → 2x → **1920×1080**
-  - Anime 4:3: 720×540 → 2x → **1440×1080**
-  - Live 16:9: 960×540 → 2x → **1920×1080**
-  - Live 4:3: 720×540 → 2x → **1440×1080**
+**Live-action 1080p (PyTorch/ROCm):**
+- Model: `RealESRGAN_x2plus.pth` via `scripts/realesrgan-upscale.py`
+- Live 16:9: 960×540 → 2x → **1920×1080**
+- Live 4:3: 720×540 → 2x → **1440×1080**
+- Chunk size: 5 minutes
 
-**4K scripts:**
-- Anime: two-pass with `realesr-animevideov3-x2` (2x × 2 passes)
-  - Anime 16:9: 960×540 → 2x → 1920×1080 → 2x → **3840×2160**
-  - Anime 4:3: 720×540 → 2x → 1440×1080 → 2x → **2880×2160**
-- Live-action: single-pass with `realesrgan-x4plus` (4x from double the 1080p input res)
-  - Live 16:9: 960×540 → 4x → **3840×2160**
-  - Live 4:3: 720×540 → 4x → **2880×2160**
-- Default chunk size is **2 minutes** (4K output frames are ~4× larger than 1080p; needs more /tmp headroom)
-- Anime 4K scripts create a video-only intermediate MKV in `/tmp` between passes; audio is muxed from the original source in the final step
+**Live-action 4K (PyTorch/ROCm):**
+- Model: `EGVSR_iter420000.pth` via `scripts/egvsr-upscale.py`
+- EGVSR is a frame-recurrent model (processes frames sequentially; `hr_prev` state resets at each chunk boundary — first ~10 frames of each chunk are slightly softer)
+- Live 16:9: 960×540 → 4x → **3840×2160**
+- Live 4:3: 720×540 → 4x → **2880×2160**
+- Chunk size: 2 minutes
+
+**Anime 1080p (ncnn-vulkan):**
+- Model: `realesr-animevideov3-x2` (2x, trained on video frames)
+- Anime 16:9: 960×540 → 2x → **1920×1080**
+- Anime 4:3: 720×540 → 2x → **1440×1080**
+- Chunk size: 5 minutes
+
+**Anime 4K (ncnn-vulkan, two-pass):**
+- Anime 16:9: 960×540 → 2x → 1920×1080 → 2x → **3840×2160**
+- Anime 4:3: 720×540 → 2x → 1440×1080 → 2x → **2880×2160**
+- Chunk size: 2 minutes
+- Creates a video-only intermediate MKV in `/tmp` between passes; audio muxed from source in final step
 
 ---
 
@@ -101,7 +110,7 @@ When in doubt about a title, ask the user before starting a long job.
 Always use `nohup` so the job survives SSH disconnects:
 
 ```bash
-nohup bash scripts/upscale-anime-16x9.sh \
+nohup bash scripts/upscale-live-16x9-4k.sh \
   "/mnt/jellyfin-movies/Title (Year).mkv" \
   "/mnt/jellyfin-movies/Title (Year) [upscaled].mkv" \
   >> /home/evanna/upscale-title.log 2>&1 &
@@ -109,7 +118,20 @@ nohup bash scripts/upscale-anime-16x9.sh \
 echo "PID: $!"
 ```
 
-Save the PID. Log file captures all output for monitoring.
+### Using the queue daemon
+
+Preferred for batch processing. Add entries to `queue.txt`, then:
+
+```bash
+nohup bash scripts/queue-daemon.sh >> /home/evanna/upscale-queue.log 2>&1 &
+```
+
+Queue format:
+```
+# STATUS|TYPE|RESOLUTION|/absolute/path/to/file.mkv
+pending|live|4k|/mnt/jellyfin-movies/Title (Year).mkv
+pending|anime|1080p|/mnt/jellyfin-movies/Title (Year).mkv
+```
 
 ---
 
@@ -118,7 +140,7 @@ Save the PID. Log file captures all output for monitoring.
 ### Check if job is running
 
 ```bash
-ps aux | grep upscale
+ps aux | grep -E "upscale|egvsr|realesrgan"
 ```
 
 ### Tail the log
@@ -127,13 +149,19 @@ ps aux | grep upscale
 tail -f /home/evanna/upscale-title.log
 ```
 
-### Read current chunk progress from log
+### Read chunk progress (timestamped)
 
 ```bash
-grep "^\[" /home/evanna/upscale-title.log | tail -5
+grep "^\[20" /home/evanna/upscale-title.log | tail -10
 ```
 
-### Check disk space before/during (temp frames use /tmp)
+Each chunk logs start time and elapsed seconds at completion:
+```
+[2026-04-04 22:07:55] [Chunk 1/61] 0s → 120s
+[2026-04-04 22:10:12] Chunk 1 done in 137s — segment saved: segment_0001.mkv
+```
+
+### Check disk space
 
 ```bash
 df -h /tmp /mnt/jellyfin-movies
@@ -142,8 +170,6 @@ df -h /tmp /mnt/jellyfin-movies
 **Minimum free space in `/tmp` before starting:**
 - 1080p jobs: at least 5 GB (5-min chunks at 960×540)
 - 4K jobs: at least 25 GB (2-min chunks; 4K output frames are much larger)
-
-For 4K anime jobs, also account for the intermediate 1080p MKV in `/tmp` (~3–6 GB for a feature film).
 
 ---
 
@@ -163,13 +189,13 @@ Expected output resolutions:
 | 1080p | 1920×1080 | 1440×1080 |
 | 4K | 3840×2160 | 2880×2160 |
 
-**4:3 output is intentionally narrower than 3840×2160** — this is correct. It preserves the 4:3 aspect ratio at 4K height. Pillarboxing is the player's job.
+**4:3 output is intentionally narrower** — preserves aspect ratio at 4K height. Pillarboxing is the player's job.
 
 ---
 
 ## Handling failures and resuming
 
-If a job dies mid-run, the segment files in `/tmp/upscale_segments_<PID>/` may still exist. Check:
+If a job dies mid-run, segment files in `/tmp/upscale_segments_<PID>/` may still exist:
 
 ```bash
 ls /tmp/upscale_segments_*/
@@ -183,29 +209,31 @@ ls /tmp/upscale_p1_segments_*/
 ls /tmp/upscale_p2_segments_*/
 ```
 
-The last complete segment number and timestamp in the log tells you where it stopped:
+Find where it stopped:
 
 ```bash
-grep "Segment saved" /home/evanna/upscale-title.log | tail -5
+grep "Chunk.*done in" /home/evanna/upscale-title.log | tail -5
 ```
 
-To resume, write a targeted resume script modelled on `scripts/upscale-resume.sh`. Key values to extract from the log before writing the resume script:
-- `SEGMENTS_DIR` (the `/tmp/upscale_segments_<PID>` path — must still exist on disk)
+To resume, write a targeted resume script modelled on `scripts/upscale-resume.sh`. Key values to extract:
+- `SEGMENTS_DIR` (the `/tmp/upscale_segments_<PID>` path — must still exist)
 - Last completed chunk number and its end timestamp
 - `FPS_ROUNDED` and `DURATION` (printed near the top of the log)
 
-If a 4K anime job failed partway through pass 2, the intermediate MKV may still be intact in `/tmp`. Check it with ffprobe before deciding whether to restart from pass 1 or pass 2.
-
-Do **not** delete `/tmp/upscale_segments_*` or `/tmp/upscale_intermediate_*` unless the job completed successfully and the output file is verified.
+Do **not** delete `/tmp/upscale_segments_*` or `/tmp/upscale_intermediate_*` unless the job completed successfully and the output is verified.
 
 ---
 
 ## Important constraints
 
-- **Only one GPU job at a time.** `realesrgan-ncnn-vulkan` and `waifu2x-ncnn-vulkan` both claim the full GPU. Running two simultaneously will cause OOM or severe slowdown. Always check `ps aux | grep -E "realesrgan|waifu2x"` before launching.
+- **Only one GPU job at a time.** Always check before launching:
+  ```bash
+  ps aux | grep -E "realesrgan|egvsr-upscale|waifu2x"
+  ```
 - **Do not skip verification.** Always ffprobe the output before considering a job done.
 - **Do not delete the input file** until the output is verified correct.
 - **4:3 output is intentionally narrower**, not 1920×1080 or 3840×2160. This is correct.
+- **EGVSR is at `/usr/local/share/egvsr/`** — not `/tmp/EGVSR/`. The `/tmp` location does not survive reboots.
 
 ---
 
@@ -219,23 +247,21 @@ ffprobe -v error -select_streams v:0 \
   -show_entries stream=display_aspect_ratio \
   -of default=noprint_wrappers=1:nokey=1 \
   "/mnt/jellyfin-movies/Spirited Away (2001).mkv"
-# → 16:9, animated content → upscale-anime-16x9.sh (1080p) or upscale-anime-16x9-4k.sh (4K)
+# → 16:9, animated → upscale-anime-16x9.sh (1080p) or upscale-anime-16x9-4k.sh (4K)
+# → 16:9, live-action → upscale-live-16x9.sh (1080p) or upscale-live-16x9-4k.sh (4K EGVSR)
 
 # 2. Check nothing is already running
-ps aux | grep -E "realesrgan|waifu2x"
+ps aux | grep -E "realesrgan|egvsr|waifu2x"
 
 # 3. Check disk space (25 GB free in /tmp for 4K jobs)
 df -h /tmp /mnt/jellyfin-movies
 
-# 4. Launch (example: 1080p)
-nohup bash /home/evanna/waifu2x-upscale/scripts/upscale-anime-16x9.sh \
-  "/mnt/jellyfin-movies/Spirited Away (2001).mkv" \
-  "/mnt/jellyfin-movies/Spirited Away (2001) [upscaled].mkv" \
-  >> /home/evanna/upscale-spirited-away.log 2>&1 &
-echo "PID: $!"
+# 4. Launch via queue (recommended)
+echo "pending|live|4k|/mnt/jellyfin-movies/Spirited Away (2001).mkv" >> queue.txt
+# (daemon picks it up automatically)
 
-# 4. Launch (example: 4K)
-nohup bash /home/evanna/waifu2x-upscale/scripts/upscale-anime-16x9-4k.sh \
+# 4. Or launch directly
+nohup bash scripts/upscale-live-16x9-4k.sh \
   "/mnt/jellyfin-movies/Spirited Away (2001).mkv" \
   "/mnt/jellyfin-movies/Spirited Away (2001) [upscaled].mkv" \
   >> /home/evanna/upscale-spirited-away.log 2>&1 &
@@ -243,4 +269,5 @@ echo "PID: $!"
 
 # 5. Monitor
 tail -f /home/evanna/upscale-spirited-away.log
+grep "Chunk.*done in" /home/evanna/upscale-spirited-away.log | tail -5
 ```

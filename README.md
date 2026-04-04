@@ -1,49 +1,62 @@
-# waifu2x-upscale
+# AI.VideoUpscale
 
-Chunked video upscaling scripts using waifu2x-ncnn-vulkan.
+Chunked video upscaling pipeline for a Jellyfin media server.
+- **Live-action 1080p** — RealESRGAN x2plus (PyTorch/ROCm)
+- **Live-action 4K** — EGVSR 4x (PyTorch/ROCm), ~7.8fps, ~6–8hr per 2hr film
+- **Anime 1080p/4K** — realesr-animevideov3-x2 (ncnn-vulkan)
+
+Jobs are managed by a queue daemon that reads `queue.txt` and processes one film at a time.
 
 ## Scripts
 
-### Purpose-built scripts (recommended)
+| Script | Content | AR | Output | Model | Backend |
+|---|---|---|---|---|---|
+| `upscale-anime-16x9.sh` | Animated | 16:9 | 1920×1080 | animevideov3-x2 | ncnn-vulkan |
+| `upscale-anime-4x3.sh` | Animated | 4:3 | 1440×1080 | animevideov3-x2 | ncnn-vulkan |
+| `upscale-anime-16x9-4k.sh` | Animated | 16:9 | 3840×2160 | animevideov3-x2 ×2 | ncnn-vulkan |
+| `upscale-anime-4x3-4k.sh` | Animated | 4:3 | 2880×2160 | animevideov3-x2 ×2 | ncnn-vulkan |
+| `upscale-live-16x9.sh` | Live-action | 16:9 | 1920×1080 | RealESRGAN-x2plus | PyTorch/ROCm |
+| `upscale-live-4x3.sh` | Live-action | 4:3 | 1440×1080 | RealESRGAN-x2plus | PyTorch/ROCm |
+| `upscale-live-16x9-4k.sh` | Live-action | 16:9 | 3840×2160 | EGVSR | PyTorch/ROCm |
+| `upscale-live-4x3-4k.sh` | Live-action | 4:3 | 2880×2160 | EGVSR | PyTorch/ROCm |
 
-Pick the script that matches your content type and source aspect ratio:
-
-| Script | Content | AR | Output | Model |
-|---|---|---|---|---|
-| `scripts/upscale-anime-16x9.sh` | Animated | 16:9 | 1920×1080 | realesr-animevideov3-x2 |
-| `scripts/upscale-anime-4x3.sh` | Animated | 4:3 | 1440×1080 | realesr-animevideov3-x2 |
-| `scripts/upscale-live-16x9.sh` | Live-action | 16:9 | 1920×1080 | realesrgan-x4plus |
-| `scripts/upscale-live-4x3.sh` | Live-action | 4:3 | 1440×1080 | realesrgan-x4plus |
-
-Usage (all scripts share the same signature):
+All scripts share the same signature:
+```bash
+bash scripts/upscale-live-16x9.sh "input.mkv" "output.mkv" [chunk_minutes]
 ```
-./upscale-anime-16x9.sh "input.mkv" "output.mkv" [chunk_minutes=5]
+
+## Queue
+
+Add entries to `queue.txt`:
+```
+pending|live|4k|/mnt/jellyfin-movies/Title (Year).mkv
+pending|anime|1080p|/mnt/jellyfin-movies/Title (Year).mkv
 ```
 
-All scripts pre-scale frames to the correct quarter/half resolution before upscaling so the output lands exactly on the target resolution without any post-downscale step.
+Start the daemon:
+```bash
+nohup bash scripts/queue-daemon.sh >> /home/evanna/upscale-queue.log 2>&1 &
+```
 
-### Legacy scripts
+## Python helpers
 
-- `scripts/upscale-video.sh` — general purpose waifu2x upscaler (cunet, configurable scale/noise/model)
-- `scripts/upscale-realesrgan.sh` — general purpose Real-ESRGAN upscaler
-- `scripts/upscale-watcher.sh` — watches a log file and records completion/errors
-- `scripts/upscale-resume.sh` / `scripts/upscale-challengers-resume.sh` — resume scripts for interrupted jobs
-
-## Models
-
-| Directory | Best for |
+| Script | Used by |
 |---|---|
-| `models/realesrgan-models/realesr-animevideov3-x2` | Animated video (best for video, handles temporal consistency) |
-| `models/realesrgan-models/realesrgan-x4plus` | Live-action / photo (4x) |
-| `models/realesrgan-models/realesrgan-x4plus-anime` | Animated (4x, alternative) |
-| `models/models-cunet` | Anime stills (high quality, slower) |
-| `models/models-upconv_7_photo` | Live-action stills (waifu2x) |
-| `models/models-upconv_7_anime_style_art_rgb` | Anime stills (fast, waifu2x) |
+| `scripts/realesrgan-upscale.py` | Live 1080p scripts (x2plus or x4plus) |
+| `scripts/egvsr-upscale.py` | Live 4K scripts (EGVSR 4x) |
 
-## Usage notes
+Both require `HSA_OVERRIDE_GFX_VERSION=10.3.0` (set by the shell scripts automatically).
 
-- Always launch with `nohup ... &` to survive SSH disconnects:
-  ```
-  nohup bash scripts/upscale-video.sh "input.mkv" "output.mkv" >> upscale.log 2>&1 &
-  ```
-- Models should be placed in `/usr/local/share/` on the target machine.
+## Model paths
+
+| Model | Path |
+|---|---|
+| RealESRGAN PyTorch weights (.pth) | `/usr/local/share/realesrgan-pth/` |
+| EGVSR weights + codes | `/usr/local/share/egvsr/` |
+| animevideov3-x2 (ncnn) | `/usr/local/share/realesrgan-models/` |
+
+## Hardware
+
+- GPU: AMD Radeon RX 6700 XT, 12 GB VRAM
+- ROCm 6.4.4 — requires `HSA_OVERRIDE_GFX_VERSION=10.3.0` for PyTorch (gfx1031 → gfx1030 spoof)
+- Only one GPU job at a time
