@@ -20,6 +20,8 @@ if [[ -z "$INPUT" || -z "$OUTPUT" ]]; then
     exit 1
 fi
 
+ts() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*"; }
+
 echo "=== Live-Action 16:9 4K Upscaler: source → 3840x2160 ==="
 echo "Input:    $INPUT"
 echo "Output:   $OUTPUT"
@@ -55,7 +57,8 @@ while [ "$START" -lt "$DURATION" ]; do
     [ "$END" -gt "$DURATION" ] && END=$DURATION
     SEGMENT="$SEGMENTS_DIR/segment_$(printf '%04d' $CHUNK).mkv"
 
-    echo "[Chunk $CHUNK/$TOTAL_CHUNKS] ${START}s → ${END}s"
+    CHUNK_START=$(date +%s)
+    ts "[Chunk $CHUNK/$TOTAL_CHUNKS] ${START}s → ${END}s"
 
     rm -rf "$WORK_DIR/frames" "$WORK_DIR/upscaled"
     mkdir -p "$WORK_DIR/frames" "$WORK_DIR/upscaled"
@@ -92,12 +95,13 @@ while [ "$START" -lt "$DURATION" ]; do
         "$SEGMENT" 2>&1 | grep -E "frame=.*fps=" | tail -1
 
     echo "file '$SEGMENT'" >> "$SEGMENT_LIST"
-    echo "  Segment saved: $(basename "$SEGMENT")"
+    CHUNK_ELAPSED=$(( $(date +%s) - CHUNK_START ))
+    ts "  Chunk $CHUNK done in ${CHUNK_ELAPSED}s — segment saved: $(basename "$SEGMENT")"
     START=$END
 done
 
 echo ""
-echo "[Final] Concatenating $TOTAL_CHUNKS segments + muxing audio/subtitles..."
+ts "[Final] Concatenating $TOTAL_CHUNKS segments + muxing audio/subtitles..."
 ffmpeg -y \
     -f concat -safe 0 -i "$SEGMENT_LIST" \
     -i "$INPUT" \
@@ -113,6 +117,6 @@ ffmpeg -y \
 rm -rf "$SEGMENTS_DIR"
 
 echo ""
-echo "=== Done! ==="
+ts "=== Done! ==="
 ffprobe "$OUTPUT" 2>&1 | grep -E "Duration|Video:|Audio:"
 ls -lh "$OUTPUT"
