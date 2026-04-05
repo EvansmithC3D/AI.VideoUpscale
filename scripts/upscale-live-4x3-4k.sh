@@ -2,8 +2,8 @@
 # Upscale live-action fullscreen (4:3) MKV to 4K (2880x2160) using EGVSR (PyTorch/ROCm)
 # Single pass: pre-scales to 720x540 so 4x output lands exactly at 2880x2160
 # Note: 2880x2160 is correct 4:3 at 4K height — player handles pillarboxing
-# Default chunk is 2 minutes — 4K output frames are ~4x larger than 1080p, needs more /tmp headroom
-# Usage: ./upscale-live-4x3-4k.sh "input.mkv" "output.mkv" [chunk_minutes=2]
+# EGVSR output is piped directly to ffmpeg — no intermediate 4K PNG writes
+# Usage: ./upscale-live-4x3-4k.sh "input.mkv" "output.mkv" [chunk_minutes=10]
 
 INPUT="$1"
 OUTPUT="$2"
@@ -12,12 +12,14 @@ CHUNK_MIN="${3:-10}"
 QUARTER_W=720
 QUARTER_H=540
 SCALE=4
+OUT_W=$((QUARTER_W * SCALE))
+OUT_H=$((QUARTER_H * SCALE))
 SCRIPT_DIR="$(dirname "$(readlink -f "$0")")"
 WORK_DIR="/tmp/upscale_work_$$"
 SEGMENTS_DIR="/tmp/upscale_segments_$$"
 
 if [[ -z "$INPUT" || -z "$OUTPUT" ]]; then
-    echo "Usage: $0 <input.mkv> <output.mkv> [chunk_minutes=2]"
+    echo "Usage: $0 <input.mkv> <output.mkv> [chunk_minutes=10]"
     exit 1
 fi
 
@@ -42,7 +44,7 @@ TOTAL_CHUNKS=$(( (DURATION + CHUNK_SEC - 1) / CHUNK_SEC ))
 echo "Duration: ${DURATION}s  FPS: $FPS_ROUNDED  Chunks: $TOTAL_CHUNKS"
 echo ""
 
-mkdir -p "$WORK_DIR/frames" "$WORK_DIR/upscaled" "$SEGMENTS_DIR"
+mkdir -p "$WORK_DIR/frames" "$SEGMENTS_DIR"
 
 cleanup() { rm -rf "$WORK_DIR"; }
 trap cleanup EXIT
@@ -61,8 +63,8 @@ while [ "$START" -lt "$DURATION" ]; do
     CHUNK_START=$(date +%s)
     ts "[Chunk $CHUNK/$TOTAL_CHUNKS] ${START}s → ${END}s"
 
-    rm -rf "$WORK_DIR/frames" "$WORK_DIR/upscaled"
-    mkdir -p "$WORK_DIR/frames" "$WORK_DIR/upscaled"
+    rm -rf "$WORK_DIR/frames"
+    mkdir -p "$WORK_DIR/frames"
 
     ffmpeg -y -ss "$START" -t "$CHUNK_SEC" -i "$INPUT" \
         -vf "scale=${QUARTER_W}:${QUARTER_H}:flags=lanczos,fps=$FPS_ROUNDED" -vsync vfr -q:v 1 \
@@ -79,21 +81,20 @@ while [ "$START" -lt "$DURATION" ]; do
     fi
 
     HSA_OVERRIDE_GFX_VERSION=10.3.0 python3 "$SCRIPT_DIR/egvsr-upscale.py" \
-        --input "$WORK_DIR/frames" \
-        --output "$WORK_DIR/upscaled"
+        --input "$WORK_DIR/frames" | \
+    ffmpeg -y \
+        -f rawvideo -pixel_format bgr24 \
+        -video_size "${OUT_W}x${OUT_H}" \
+        -framerate "$FPS_ROUNDED" \
+        -i pipe:0 \
+        -c:v libx265 -crf 18 -preset slow -pix_fmt yuv420p \
+        "$SEGMENT"
+    PIPE_STATUS=("${PIPESTATUS[@]}")
 
-    UPSCALED_COUNT=$(ls "$WORK_DIR/upscaled" | wc -l)
-    echo "  Upscaled frames: $UPSCALED_COUNT"
-    if [ "$UPSCALED_COUNT" -eq 0 ]; then
-        echo "  ERROR: realesrgan produced no output frames — aborting"
+    if [ "${PIPE_STATUS[0]}" -ne 0 ] || [ "${PIPE_STATUS[1]}" -ne 0 ] || [ ! -s "$SEGMENT" ]; then
+        ts "  ERROR: pipe failed (python=${PIPE_STATUS[0]} ffmpeg=${PIPE_STATUS[1]}) — aborting"
         exit 1
     fi
-
-    ffmpeg -y \
-        -framerate "$FPS_ROUNDED" \
-        -i "$WORK_DIR/upscaled/frame_%08d.png" \
-        -c:v libx265 -crf 18 -preset slow -pix_fmt yuv420p \
-        "$SEGMENT" 2>&1 | grep -E "frame=.*fps=" | tail -1
 
     echo "file '$SEGMENT'" >> "$SEGMENT_LIST"
     CHUNK_ELAPSED=$(( $(date +%s) - CHUNK_START ))

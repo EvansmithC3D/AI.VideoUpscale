@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
-"""Batch upscale a directory of PNG frames using EGVSR 4x (PyTorch/ROCm).
-Processes frames recurrently in sorted order — maintain frame sequence per chunk.
+"""Upscale PNG frames from a directory using EGVSR 4x, writing raw BGR24
+frames to stdout for direct piping into ffmpeg — no intermediate PNG writes.
 
 Usage:
     HSA_OVERRIDE_GFX_VERSION=10.3.0 python3 egvsr-upscale.py \
-        --input /tmp/frames --output /tmp/upscaled
+        --input /tmp/frames | \
+    ffmpeg -f rawvideo -pixel_format bgr24 -video_size 3840x2160 \
+           -framerate 29.97 -i pipe:0 -c:v libx265 -crf 18 output.mkv
 """
 import argparse
 import glob
@@ -22,7 +24,6 @@ WEIGHTS = os.path.join(EGVSR_ROOT, 'EGVSR_iter420000.pth')
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--input', required=True)
-    parser.add_argument('--output', required=True)
     args = parser.parse_args()
 
     sys.path.insert(0, os.path.join(EGVSR_ROOT, 'codes'))
@@ -37,14 +38,16 @@ def main():
     frames = sorted(glob.glob(os.path.join(args.input, '*.png')))
     total = len(frames)
     if total == 0:
-        print('  ERROR: No PNG frames found in input directory', flush=True)
+        print('  ERROR: No PNG frames found in input directory', file=sys.stderr, flush=True)
         sys.exit(1)
 
     img0 = cv2.imread(frames[0])
     h, w = img0.shape[:2]
     hr_prev = torch.zeros(1, 3, h * 4, w * 4, dtype=torch.float32).cuda()
 
-    print(f'  Processing {total} frames with EGVSR (4x → {w*4}x{h*4})...', flush=True)
+    print(f'  Processing {total} frames with EGVSR (4x → {w*4}x{h*4})...', file=sys.stderr, flush=True)
+
+    out_stream = sys.stdout.buffer
 
     for i, f in enumerate(frames):
         img = cv2.imread(f)
@@ -59,10 +62,11 @@ def main():
         out = hr.squeeze(0).cpu().numpy().transpose(1, 2, 0)
         out = np.clip(out, 0, 1)
         out_bgr = cv2.cvtColor((out * 255).astype(np.uint8), cv2.COLOR_RGB2BGR)
-        cv2.imwrite(os.path.join(args.output, os.path.basename(f)), out_bgr)
+        out_stream.write(out_bgr.tobytes())
+        out_stream.flush()
 
         if (i + 1) % 100 == 0 or i == total - 1:
-            print(f'  Frame {i+1}/{total}', flush=True)
+            print(f'  Frame {i+1}/{total}', file=sys.stderr, flush=True)
 
 
 if __name__ == '__main__':
