@@ -86,7 +86,7 @@ while [ "$START" -lt "$DURATION" ]; do
         -video_size "${OUT_W}x${OUT_H}" \
         -framerate "$FPS_ROUNDED" \
         -i pipe:0 \
-        -c:v libx265 -crf 18 -preset slow -pix_fmt yuv420p \
+        -c:v libx265 -crf 18 -preset medium -pix_fmt yuv420p \
         "$SEGMENT"
     PIPE_STATUS=("${PIPESTATUS[@]}")
 
