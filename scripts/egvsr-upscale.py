@@ -59,10 +59,10 @@ def main():
             hr = model(lr, lr, hr_prev)
         hr_prev = hr.detach()
 
-        out = hr.squeeze(0).cpu().numpy().transpose(1, 2, 0)
-        out = np.clip(out, 0, 1)
-        out_bgr = cv2.cvtColor((out * 255).astype(np.uint8), cv2.COLOR_RGB2BGR)
-        out_stream.write(out_bgr.tobytes())
+        # Convert to BGR uint8 on GPU before CPU transfer (24MB vs 95MB)
+        out = (hr.squeeze(0).clamp(0, 1) * 255).byte()  # 3xHxW uint8, on GPU
+        out = out.flip(0).permute(1, 2, 0).contiguous()  # HxWx3 BGR, on GPU
+        out_stream.write(out.cpu().numpy().tobytes())
         out_stream.flush()
 
         if (i + 1) % 100 == 0 or i == total - 1:
