@@ -3,6 +3,7 @@
 # Single pass: pre-scales to 720x540 so 4x output lands exactly at 2880x2160
 # Note: 2880x2160 is correct 4:3 at 4K height — player handles pillarboxing
 # EGVSR output is piped directly to ffmpeg — no intermediate 4K PNG writes
+# Encoding: hevc_vaapi (AMD GPU hardware encoder, VCN) — frees CPU from libx265
 # Usage: ./upscale-live-4x3-4k.sh "input.mkv" "output.mkv" [chunk_minutes=10]
 
 INPUT="$1"
@@ -81,13 +82,15 @@ while [ "$START" -lt "$DURATION" ]; do
     fi
 
     HSA_OVERRIDE_GFX_VERSION=10.3.0 python3 "$SCRIPT_DIR/egvsr-upscale.py" \
-        --input "$WORK_DIR/frames" | \
+        --input "$WORK_DIR/frames" --warmup 30 | \
     ffmpeg -y \
+        -vaapi_device /dev/dri/renderD128 \
         -f rawvideo -pixel_format bgr24 \
         -video_size "${OUT_W}x${OUT_H}" \
         -framerate "$FPS_ROUNDED" \
         -i pipe:0 \
-        -c:v libx265 -crf 18 -preset medium -pix_fmt yuv420p \
+        -vf "format=nv12,hwupload" \
+        -c:v hevc_vaapi -qp 20 -g 48 \
         "$SEGMENT"
     PIPE_STATUS=("${PIPESTATUS[@]}")
 
@@ -103,6 +106,7 @@ while [ "$START" -lt "$DURATION" ]; do
 done
 
 echo ""
+MUXED_TMP="${OUTPUT%.mkv}.muxed.mkv"
 ts "[Final] Concatenating $TOTAL_CHUNKS segments + muxing audio/subtitles..."
 ffmpeg -y \
     -f concat -safe 0 -i "$SEGMENT_LIST" \
@@ -111,12 +115,16 @@ ffmpeg -y \
     -map 1:a \
     -map 1:s? \
     -c:v copy \
-    -c:a copy \
+    -c:a eac3 \
     -c:s copy \
     -metadata title="$(basename "$INPUT" .mkv) [live 4:3 upscaled 4K]" \
-    "$OUTPUT" 2>&1 | grep -E "frame=.*fps=|time=" | tail -1
+    "$MUXED_TMP" 2>&1 | grep -E "frame=.*fps=|time=" | tail -1
 
 rm -rf "$SEGMENTS_DIR"
+
+ts "[Final] Rebuilding seek index with mkvmerge..."
+mkvmerge -o "$OUTPUT" "$MUXED_TMP" 2>&1 | grep -E "Progress: 100%|Warning|Error" | tail -2
+rm -f "$MUXED_TMP"
 
 echo ""
 ts "=== Done! ==="

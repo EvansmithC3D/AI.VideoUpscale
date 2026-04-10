@@ -103,6 +103,7 @@ while [ "$START" -lt "$DURATION" ]; do
 done
 
 echo ""
+MUXED_TMP="${OUTPUT%.mkv}.muxed.mkv"
 ts "[Final] Concatenating $TOTAL_CHUNKS segments + muxing audio/subtitles..."
 ffmpeg -y \
     -f concat -safe 0 -i "$SEGMENT_LIST" \
@@ -114,9 +115,13 @@ ffmpeg -y \
     -c:a copy \
     -c:s copy \
     -metadata title="$(basename "$INPUT" .mkv) [live 4:3 upscaled 1440x1080]" \
-    "$OUTPUT" 2>&1 | grep -E "frame=.*fps=|time=" | tail -1
+    "$MUXED_TMP" 2>&1 | grep -E "frame=.*fps=|time=" | tail -1
 
 rm -rf "$SEGMENTS_DIR"
+
+ts "[Final] Rebuilding seek index with mkvmerge..."
+mkvmerge -o "$OUTPUT" "$MUXED_TMP" 2>&1 | grep -E "Progress: 100%|Warning|Error" | tail -2
+rm -f "$MUXED_TMP"
 
 echo ""
 ts "=== Done! ==="

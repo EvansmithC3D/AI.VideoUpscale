@@ -83,7 +83,7 @@ while [ "$START" -lt "$DURATION" ]; do
         -n "$MODEL" \
         -m "$MODEL_PATH" \
         -s 2 \
-        -t 0 \
+        -t 800 \
         -g 0 -j 2:4:4 \
         -f png 2>&1 | grep -v "^$" | tail -3
 
@@ -157,7 +157,7 @@ while [ "$START" -lt "$DURATION2" ]; do
         -n "$MODEL" \
         -m "$MODEL_PATH" \
         -s 2 \
-        -t 0 \
+        -t 800 \
         -g 0 -j 2:4:4 \
         -f png 2>&1 | grep -v "^$" | tail -3
 
@@ -165,6 +165,7 @@ while [ "$START" -lt "$DURATION2" ]; do
         -framerate "$FPS_ROUNDED" \
         -i "$WORK_DIR/upscaled/frame_%08d.png" \
         -c:v libx265 -crf 18 -preset slow -pix_fmt yuv420p \
+        -x265-params "keyint=48:min-keyint=24" \
         "$SEGMENT" 2>&1 | grep -E "frame=.*fps=" | tail -1
 
     echo "file '$SEGMENT'" >> "$P2_SEGMENT_LIST"
@@ -173,6 +174,7 @@ while [ "$START" -lt "$DURATION2" ]; do
 done
 
 echo ""
+MUXED_TMP="${OUTPUT%.mkv}.muxed.mkv"
 echo "[Final] Concatenating pass-2 segments + muxing audio/subtitles from source..."
 ffmpeg -y \
     -f concat -safe 0 -i "$P2_SEGMENT_LIST" \
@@ -181,13 +183,17 @@ ffmpeg -y \
     -map 1:a \
     -map 1:s? \
     -c:v copy \
-    -c:a copy \
+    -c:a eac3 \
     -c:s copy \
     -metadata title="$(basename "$INPUT" .mkv) [anime 16:9 upscaled 4K]" \
-    "$OUTPUT" 2>&1 | grep -E "frame=.*fps=|time=" | tail -1
+    "$MUXED_TMP" 2>&1 | grep -E "frame=.*fps=|time=" | tail -1
 
 rm -rf "$P2_SEGMENTS"
 rm -f "$INTERMEDIATE"
+
+echo "[Final] Rebuilding seek index with mkvmerge..."
+mkvmerge -o "$OUTPUT" "$MUXED_TMP" 2>&1 | grep -E "Progress: 100%|Warning|Error" | tail -2
+rm -f "$MUXED_TMP"
 
 echo ""
 echo "=== Done! ==="

@@ -24,6 +24,8 @@ WEIGHTS = os.path.join(EGVSR_ROOT, 'EGVSR_iter420000.pth')
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--input', required=True)
+    parser.add_argument('--warmup', type=int, default=0,
+                        help='Run first frame N times to prime hr_prev before real output starts')
     args = parser.parse_args()
 
     sys.path.insert(0, os.path.join(EGVSR_ROOT, 'codes'))
@@ -44,6 +46,17 @@ def main():
     img0 = cv2.imread(frames[0])
     h, w = img0.shape[:2]
     hr_prev = torch.zeros(1, 3, h * 4, w * 4, dtype=torch.float32).cuda()
+
+    if args.warmup > 0:
+        print(f'  Warming up EGVSR ({args.warmup} frames, no output)...', file=sys.stderr, flush=True)
+        img = cv2.imread(frames[0])
+        lr_warm = torch.from_numpy(
+            cv2.cvtColor(img, cv2.COLOR_BGR2RGB).astype(np.float32) / 255.0
+        ).permute(2, 0, 1).unsqueeze(0).cuda()
+        for _ in range(args.warmup):
+            with torch.no_grad():
+                hr = model(lr_warm, lr_warm, hr_prev)
+            hr_prev = hr.detach()
 
     print(f'  Processing {total} frames with EGVSR (4x → {w*4}x{h*4})...', file=sys.stderr, flush=True)
 

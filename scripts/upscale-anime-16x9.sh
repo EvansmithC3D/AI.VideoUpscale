@@ -82,7 +82,7 @@ while [ "$START" -lt "$DURATION" ]; do
         -n "$MODEL" \
         -m "$MODEL_PATH" \
         -s "$SCALE" \
-        -t 0 \
+        -t 800 \
         -g 0 -j 2:4:4 \
         -f png 2>&1 | grep -v "^$" | tail -3
 
@@ -98,6 +98,7 @@ while [ "$START" -lt "$DURATION" ]; do
 done
 
 echo ""
+MUXED_TMP="${OUTPUT%.mkv}.muxed.mkv"
 echo "[Final] Concatenating $TOTAL_CHUNKS segments + muxing audio/subtitles..."
 ffmpeg -y \
     -f concat -safe 0 -i "$SEGMENT_LIST" \
@@ -109,9 +110,13 @@ ffmpeg -y \
     -c:a copy \
     -c:s copy \
     -metadata title="$(basename "$INPUT" .mkv) [anime 16:9 upscaled 1080p]" \
-    "$OUTPUT" 2>&1 | grep -E "frame=.*fps=|time=" | tail -1
+    "$MUXED_TMP" 2>&1 | grep -E "frame=.*fps=|time=" | tail -1
 
 rm -rf "$SEGMENTS_DIR"
+
+echo "[Final] Rebuilding seek index with mkvmerge..."
+mkvmerge -o "$OUTPUT" "$MUXED_TMP" 2>&1 | grep -E "Progress: 100%|Warning|Error" | tail -2
+rm -f "$MUXED_TMP"
 
 echo ""
 echo "=== Done! ==="

@@ -111,6 +111,7 @@ while [ "$START" -lt "$DURATION" ]; do
 done
 
 echo ""
+MUXED_TMP="${OUTPUT%.mkv}.muxed.mkv"
 ts "[Final] Concatenating $TOTAL_CHUNKS segments + muxing audio/subtitles..."
 ffmpeg -y \
     -f concat -safe 0 -i "$SEGMENT_LIST" \
@@ -122,16 +123,20 @@ ffmpeg -y \
     -c:a copy \
     -c:s copy \
     -metadata title="$(basename "$INPUT" .mkv) [upscaled 1080p]" \
-    "$OUTPUT"
+    "$MUXED_TMP"
 FFMPEG_EXIT=$?
 
-if [ $FFMPEG_EXIT -ne 0 ] || [ ! -f "$OUTPUT" ]; then
+if [ $FFMPEG_EXIT -ne 0 ] || [ ! -f "$MUXED_TMP" ]; then
     echo ""
     echo "=== ERROR: Final concat failed (exit $FFMPEG_EXIT) — segments preserved in $SEGMENTS_DIR ==="
     exit 1
 fi
 
 rm -rf "$SEGMENTS_DIR"
+
+ts "[Final] Rebuilding seek index with mkvmerge..."
+mkvmerge -o "$OUTPUT" "$MUXED_TMP" 2>&1 | grep -E "Progress: 100%|Warning|Error" | tail -2
+rm -f "$MUXED_TMP"
 
 echo ""
 ts "=== Done! ==="
