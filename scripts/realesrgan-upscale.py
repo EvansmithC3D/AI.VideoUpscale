@@ -30,7 +30,7 @@ def main():
                     num_grow_ch=32, scale=scale)
     upsampler = RealESRGANer(
         scale=scale, model_path=model_path, model=model,
-        tile=0, tile_pad=10, pre_pad=0, half=True, device='cuda'
+        tile=0, tile_pad=10, pre_pad=0, half=False, device='cuda'
     )
 
     frames = sorted(glob.glob(os.path.join(args.input, '*.png')))
