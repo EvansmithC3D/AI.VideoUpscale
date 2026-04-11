@@ -63,9 +63,9 @@ while [ "$START" -lt "$DURATION" ]; do
     rm -rf "$WORK_DIR/frames" "$WORK_DIR/upscaled"
     mkdir -p "$WORK_DIR/frames" "$WORK_DIR/upscaled"
 
-    # Extract frames, scale to 720x540 (correct 4:3 display, handles anamorphic 720x480 DAR)
+    # Extract frames: IVTC (reverse 3:2 pulldown), then scale to 720x540
     ffmpeg -y -ss "$START" -t "$CHUNK_SEC" -i "$INPUT" \
-        -vf "scale=${HALF_W}:${HALF_H}:flags=lanczos,fps=$FPS_ROUNDED" -vsync vfr -q:v 1 \
+        -vf "fieldmatch,yadif=deint=interlaced,decimate,scale=${HALF_W}:${HALF_H}:flags=lanczos" -vsync vfr -q:v 1 \
         "$WORK_DIR/frames/frame_%08d.png" -an \
         2>&1 | grep -E "^frame=" | tail -1
 
@@ -77,6 +77,9 @@ while [ "$START" -lt "$DURATION" ]; do
         START=$END
         continue
     fi
+
+    CHUNK_FPS=$(echo "scale=6; $FRAME_COUNT / ($END - $START)" | bc)
+    echo "  FPS (post-IVTC): $CHUNK_FPS"
 
     HSA_OVERRIDE_GFX_VERSION=10.3.0 python3 "$SCRIPT_DIR/realesrgan-upscale.py" \
         --model "$MODEL" \
@@ -91,7 +94,7 @@ while [ "$START" -lt "$DURATION" ]; do
     fi
 
     ffmpeg -y \
-        -framerate "$FPS_ROUNDED" \
+        -framerate "$CHUNK_FPS" \
         -i "$WORK_DIR/upscaled/frame_%08d.png" \
         -c:v libx265 -crf 18 -preset medium -pix_fmt yuv420p \
         "$SEGMENT" 2>&1 | grep -E "frame=.*fps=" | tail -1

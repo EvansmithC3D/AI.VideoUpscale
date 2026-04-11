@@ -1,7 +1,8 @@
 #!/bin/bash
 # Upscale live-action widescreen (16:9) MKV to 4K (3840x2160) using EGVSR (PyTorch/ROCm)
 # Single pass: pre-scales to 960x540 so 4x output lands exactly at 3840x2160
-# EGVSR output is piped directly to ffmpeg — no intermediate 4K PNG writes
+# EGVSR runs as a single Python process across all chunks — model loads once,
+# hr_prev/lr_prev state carries across chunk boundaries (no warmup artifacts).
 # Encoding: hevc_vaapi (AMD GPU hardware encoder, VCN) — frees CPU from libx265
 # Usage: ./upscale-live-16x9-4k.sh "input.mkv" "output.mkv" [chunk_minutes=10]
 
@@ -15,7 +16,6 @@ SCALE=4
 OUT_W=$((QUARTER_W * SCALE))
 OUT_H=$((QUARTER_H * SCALE))
 SCRIPT_DIR="$(dirname "$(readlink -f "$0")")"
-WORK_DIR="/tmp/upscale_work_$$"
 SEGMENTS_DIR="/tmp/upscale_segments_$$"
 
 if [[ -z "$INPUT" || -z "$OUTPUT" ]]; then
@@ -44,65 +44,25 @@ TOTAL_CHUNKS=$(( (DURATION + CHUNK_SEC - 1) / CHUNK_SEC ))
 echo "Duration: ${DURATION}s  FPS: $FPS_ROUNDED  Chunks: $TOTAL_CHUNKS"
 echo ""
 
-mkdir -p "$WORK_DIR/frames" "$SEGMENTS_DIR"
-
-cleanup() { rm -rf "$WORK_DIR"; }
-trap cleanup EXIT
-
-CHUNK=0
-START=0
+mkdir -p "$SEGMENTS_DIR"
 SEGMENT_LIST="$SEGMENTS_DIR/segments.txt"
-> "$SEGMENT_LIST"
 
-while [ "$START" -lt "$DURATION" ]; do
-    CHUNK=$((CHUNK + 1))
-    END=$((START + CHUNK_SEC))
-    [ "$END" -gt "$DURATION" ] && END=$DURATION
-    SEGMENT="$SEGMENTS_DIR/segment_$(printf '%04d' $CHUNK).mkv"
+ts "[Processing] Launching EGVSR pipeline (single process, state persists across chunks)..."
+HSA_OVERRIDE_GFX_VERSION=10.3.0 python3 "$SCRIPT_DIR/egvsr-upscale.py" \
+    --input "$INPUT" \
+    --segments-dir "$SEGMENTS_DIR" \
+    --in-width "$QUARTER_W" \
+    --in-height "$QUARTER_H" \
+    --out-width "$OUT_W" \
+    --out-height "$OUT_H" \
+    --duration "$DURATION" \
+    --chunk-sec "$CHUNK_SEC"
+PYTHON_EXIT=$?
 
-    CHUNK_START=$(date +%s)
-    ts "[Chunk $CHUNK/$TOTAL_CHUNKS] ${START}s → ${END}s"
-
-    rm -rf "$WORK_DIR/frames"
-    mkdir -p "$WORK_DIR/frames"
-
-    ffmpeg -y -ss "$START" -t "$CHUNK_SEC" -i "$INPUT" \
-        -vf "scale=${QUARTER_W}:${QUARTER_H}:flags=lanczos,fps=$FPS_ROUNDED" -vsync vfr -q:v 1 \
-        "$WORK_DIR/frames/frame_%08d.png" -an \
-        2>&1 | grep -E "^frame=" | tail -1
-
-    FRAME_COUNT=$(ls "$WORK_DIR/frames" | wc -l)
-    echo "  Frames: $FRAME_COUNT"
-
-    if [ "$FRAME_COUNT" -eq 0 ]; then
-        echo "  No frames extracted, skipping."
-        START=$END
-        continue
-    fi
-
-    HSA_OVERRIDE_GFX_VERSION=10.3.0 python3 "$SCRIPT_DIR/egvsr-upscale.py" \
-        --input "$WORK_DIR/frames" --warmup 30 | \
-    ffmpeg -y \
-        -vaapi_device /dev/dri/renderD128 \
-        -f rawvideo -pixel_format bgr24 \
-        -video_size "${OUT_W}x${OUT_H}" \
-        -framerate "$FPS_ROUNDED" \
-        -i pipe:0 \
-        -vf "format=nv12,hwupload" \
-        -c:v hevc_vaapi -qp 20 -g 48 \
-        "$SEGMENT"
-    PIPE_STATUS=("${PIPESTATUS[@]}")
-
-    if [ "${PIPE_STATUS[0]}" -ne 0 ] || [ "${PIPE_STATUS[1]}" -ne 0 ] || [ ! -s "$SEGMENT" ]; then
-        ts "  ERROR: pipe failed (python=${PIPE_STATUS[0]} ffmpeg=${PIPE_STATUS[1]}) — aborting"
-        exit 1
-    fi
-
-    echo "file '$SEGMENT'" >> "$SEGMENT_LIST"
-    CHUNK_ELAPSED=$(( $(date +%s) - CHUNK_START ))
-    ts "  Chunk $CHUNK done in ${CHUNK_ELAPSED}s — segment saved: $(basename "$SEGMENT")"
-    START=$END
-done
+if [ "$PYTHON_EXIT" -ne 0 ]; then
+    ts "  ERROR: EGVSR pipeline failed (exit $PYTHON_EXIT) — segments preserved in $SEGMENTS_DIR"
+    exit 1
+fi
 
 echo ""
 MUXED_TMP="${OUTPUT%.mkv}.muxed.mkv"

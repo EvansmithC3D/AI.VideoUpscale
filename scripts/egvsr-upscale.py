@@ -1,17 +1,25 @@
 #!/usr/bin/env python3
-"""Upscale PNG frames from a directory using EGVSR 4x, writing raw BGR24
-frames to stdout for direct piping into ffmpeg — no intermediate PNG writes.
+"""EGVSR 4x upscaler for live-action video. Processes an entire MKV in chunks,
+keeping model and recurrent state (hr_prev/lr_prev) alive across chunk boundaries.
+Writes hevc_vaapi segment MKVs to --segments-dir; shell handles final concat + mux.
 
 Usage:
     HSA_OVERRIDE_GFX_VERSION=10.3.0 python3 egvsr-upscale.py \
-        --input /tmp/frames | \
-    ffmpeg -f rawvideo -pixel_format bgr24 -video_size 3840x2160 \
-           -framerate 29.97 -i pipe:0 -c:v libx265 -crf 18 output.mkv
+        --input /mnt/jellyfin-movies/Title.mkv \
+        --segments-dir /tmp/upscale_segments_$$ \
+        --in-width 960 --in-height 540 \
+        --out-width 3840 --out-height 2160 \
+        --duration 7200 \
+        --chunk-sec 600
 """
 import argparse
 import glob
 import os
+import subprocess
 import sys
+import tempfile
+import time
+from datetime import datetime
 
 import cv2
 import numpy as np
@@ -21,48 +29,48 @@ EGVSR_ROOT = '/usr/local/share/egvsr'
 WEIGHTS = os.path.join(EGVSR_ROOT, 'EGVSR_iter420000.pth')
 
 
-def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--input', required=True)
-    parser.add_argument('--warmup', type=int, default=0,
-                        help='Run first frame N times to prime hr_prev before real output starts')
-    args = parser.parse_args()
+def ts(msg):
+    print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] {msg}",
+          file=sys.stderr, flush=True)
 
-    sys.path.insert(0, os.path.join(EGVSR_ROOT, 'codes'))
-    from models.networks.egvsr_nets import FRNet
 
-    model = FRNet(in_nc=3, out_nc=3, nf=64, nb=10, degradation='BI', scale=4)
-    ckpt = torch.load(WEIGHTS, map_location='cpu', weights_only=False)
-    ckpt = {k: v for k, v in ckpt.items() if 'upsample_func.kernels' not in k}
-    model.load_state_dict(ckpt, strict=False)
-    model = model.cuda().eval()
+def extract_frames(input_mkv, start, duration, in_w, in_h, frames_dir):
+    """Extract IVTC'd, scaled frames for one chunk. Returns frame count."""
+    cmd = [
+        'ffmpeg', '-y',
+        '-ss', str(start),
+        '-t', str(duration),
+        '-i', input_mkv,
+        '-vf', f'fieldmatch,yadif=deint=interlaced,decimate,scale={in_w}:{in_h}:flags=lanczos',
+        '-vsync', 'vfr', '-q:v', '1',
+        os.path.join(frames_dir, 'frame_%08d.png'),
+        '-an',
+    ]
+    subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    return len(glob.glob(os.path.join(frames_dir, '*.png')))
 
-    frames = sorted(glob.glob(os.path.join(args.input, '*.png')))
+
+def process_chunk(frames_dir, chunk_fps, out_w, out_h, segment_path,
+                  model, hr_prev, lr_prev):
+    """Run EGVSR on extracted frames, encode to VAAPI segment.
+    Returns updated (hr_prev, lr_prev) — state is NOT reset between chunks."""
+    frames = sorted(glob.glob(os.path.join(frames_dir, '*.png')))
     total = len(frames)
-    if total == 0:
-        print('  ERROR: No PNG frames found in input directory', file=sys.stderr, flush=True)
-        sys.exit(1)
 
-    img0 = cv2.imread(frames[0])
-    h, w = img0.shape[:2]
-    hr_prev = torch.zeros(1, 3, h * 4, w * 4, dtype=torch.float32).cuda()
-    lr_prev = torch.zeros(1, 3, h, w, dtype=torch.float32).cuda()
+    ffmpeg_proc = subprocess.Popen([
+        'ffmpeg', '-y',
+        '-vaapi_device', '/dev/dri/renderD128',
+        '-f', 'rawvideo', '-pixel_format', 'bgr24',
+        '-video_size', f'{out_w}x{out_h}',
+        '-framerate', str(chunk_fps),
+        '-i', 'pipe:0',
+        '-vf', 'format=nv12,hwupload',
+        '-c:v', 'hevc_vaapi', '-qp', '20', '-g', '48',
+        segment_path,
+    ], stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
-    if args.warmup > 0:
-        print(f'  Warming up EGVSR ({args.warmup} frames, no output)...', file=sys.stderr, flush=True)
-        img = cv2.imread(frames[0])
-        lr_warm = torch.from_numpy(
-            cv2.cvtColor(img, cv2.COLOR_BGR2RGB).astype(np.float32) / 255.0
-        ).permute(2, 0, 1).unsqueeze(0).cuda()
-        for _ in range(args.warmup):
-            with torch.no_grad():
-                hr = model(lr_warm, lr_warm, hr_prev)
-            hr_prev = hr.detach()
-        lr_prev = lr_warm.detach()
-
-    print(f'  Processing {total} frames with EGVSR (4x → {w*4}x{h*4})...', file=sys.stderr, flush=True)
-
-    out_stream = sys.stdout.buffer
+    print(f'  Processing {total} frames with EGVSR (4x → {out_w}x{out_h})...',
+          file=sys.stderr, flush=True)
 
     for i, f in enumerate(frames):
         img = cv2.imread(f)
@@ -75,14 +83,121 @@ def main():
         hr_prev = hr.detach()
         lr_prev = lr_cur.detach()
 
-        # Convert to BGR uint8 on GPU before CPU transfer (24MB vs 95MB)
-        out = (hr.squeeze(0).clamp(0, 1) * 255).byte()  # 3xHxW uint8, on GPU
-        out = out.flip(0).permute(1, 2, 0).contiguous()  # HxWx3 BGR, on GPU
-        out_stream.write(out.cpu().numpy().tobytes())
-        out_stream.flush()
+        out = (hr.squeeze(0).clamp(0, 1) * 255).byte()
+        out = out.flip(0).permute(1, 2, 0).contiguous()
+        ffmpeg_proc.stdin.write(out.cpu().numpy().tobytes())
+        ffmpeg_proc.stdin.flush()
 
         if (i + 1) % 100 == 0 or i == total - 1:
-            print(f'  Frame {i+1}/{total}', file=sys.stderr, flush=True)
+            print(f'  Frame {i + 1}/{total}', file=sys.stderr, flush=True)
+
+    ffmpeg_proc.stdin.close()
+    ffmpeg_proc.wait()
+
+    if ffmpeg_proc.returncode != 0:
+        raise RuntimeError(f'ffmpeg VAAPI encode failed (exit {ffmpeg_proc.returncode})')
+    if not os.path.exists(segment_path) or os.path.getsize(segment_path) == 0:
+        raise RuntimeError(f'segment missing or empty: {segment_path}')
+
+    return hr_prev, lr_prev
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--input', required=True, help='Source MKV file')
+    parser.add_argument('--segments-dir', required=True,
+                        help='Directory for per-chunk segment MKVs (shell-managed, survives crashes)')
+    parser.add_argument('--in-width', type=int, required=True)
+    parser.add_argument('--in-height', type=int, required=True)
+    parser.add_argument('--out-width', type=int, required=True)
+    parser.add_argument('--out-height', type=int, required=True)
+    parser.add_argument('--duration', type=int, required=True,
+                        help='Total source duration in integer seconds')
+    parser.add_argument('--chunk-sec', type=int, default=600)
+    args = parser.parse_args()
+
+    torch.backends.cudnn.benchmark = True
+
+    sys.path.insert(0, os.path.join(EGVSR_ROOT, 'codes'))
+    from models.networks.egvsr_nets import FRNet
+
+    model = FRNet(in_nc=3, out_nc=3, nf=64, nb=10, degradation='BI', scale=4)
+    ckpt = torch.load(WEIGHTS, map_location='cpu', weights_only=False)
+    ckpt = {k: v for k, v in ckpt.items() if 'upsample_func.kernels' not in k}
+    model.load_state_dict(ckpt, strict=False)
+    model = model.cuda().eval()
+
+    try:
+        model = torch.compile(model)
+        print('  torch.compile: enabled', file=sys.stderr, flush=True)
+    except Exception as e:
+        print(f'  torch.compile: skipped ({e})', file=sys.stderr, flush=True)
+
+    total_chunks = (args.duration + args.chunk_sec - 1) // args.chunk_sec
+    segment_list_path = os.path.join(args.segments_dir, 'segments.txt')
+
+    hr_prev = None
+    lr_prev = None
+
+    segments_txt = open(segment_list_path, 'w')
+    try:
+        for chunk_idx in range(total_chunks):
+            start = chunk_idx * args.chunk_sec
+            end = min(start + args.chunk_sec, args.duration)
+            chunk_dur = end - start
+            segment_path = os.path.join(args.segments_dir,
+                                        f'segment_{chunk_idx + 1:04d}.mkv')
+
+            chunk_wall_start = time.time()
+            ts(f'[Chunk {chunk_idx + 1}/{total_chunks}] {start}s → {end}s')
+
+            with tempfile.TemporaryDirectory() as frames_dir:
+                try:
+                    frame_count = extract_frames(
+                        args.input, start, chunk_dur,
+                        args.in_width, args.in_height, frames_dir
+                    )
+                except subprocess.CalledProcessError as e:
+                    raise RuntimeError(f'Frame extraction failed: {e}')
+
+                if frame_count == 0:
+                    ts('  No frames extracted, skipping.')
+                    continue
+
+                chunk_fps = frame_count / chunk_dur
+                print(f'  Frames: {frame_count}  FPS (post-IVTC): {chunk_fps:.6f}',
+                      file=sys.stderr, flush=True)
+
+                if hr_prev is None:
+                    img0 = cv2.imread(
+                        sorted(glob.glob(os.path.join(frames_dir, '*.png')))[0]
+                    )
+                    h, w = img0.shape[:2]
+                    hr_prev = torch.zeros(1, 3, h * 4, w * 4,
+                                         dtype=torch.float32).cuda()
+                    lr_prev = torch.zeros(1, 3, h, w,
+                                         dtype=torch.float32).cuda()
+
+                hr_prev, lr_prev = process_chunk(
+                    frames_dir, chunk_fps,
+                    args.out_width, args.out_height,
+                    segment_path, model, hr_prev, lr_prev
+                )
+
+            segments_txt.write(f"file '{segment_path}'\n")
+            segments_txt.flush()
+
+            elapsed = int(time.time() - chunk_wall_start)
+            ts(f'  Chunk {chunk_idx + 1} done in {elapsed}s'
+               f' — segment saved: {os.path.basename(segment_path)}')
+
+    except (RuntimeError, KeyboardInterrupt) as e:
+        ts(f'ERROR: {e}')
+        segments_txt.flush()
+        segments_txt.close()
+        sys.exit(1)
+
+    segments_txt.close()
 
 
 if __name__ == '__main__':

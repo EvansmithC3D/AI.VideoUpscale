@@ -20,6 +20,9 @@ def main():
     parser.add_argument('--output', required=True)
     args = parser.parse_args()
 
+    import torch
+    torch.backends.cudnn.benchmark = True
+
     from basicsr.archs.rrdbnet_arch import RRDBNet
     from realesrgan import RealESRGANer
 

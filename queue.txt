@@ -23,7 +23,7 @@ pending|live|4k|/mnt/jellyfin-movies/Full Metal Jacket (1987).mkv
 pending|live|4k|/mnt/jellyfin-movies/Goodfellas (1990).mkv
 pending|live|4k|/mnt/jellyfin-movies/Jeff Dunham's Very Special Christmas Special (2008).mkv
 pending|live|4k|/mnt/jellyfin-movies/Men in Black II (2002).mkv
-pending|live|4k|/mnt/jellyfin-movies/My Week with Marilyn (2011).mkv
+done|live|4k|/mnt/jellyfin-movies/My Week with Marilyn (2011).mkv
 pending|anime|1080p|/mnt/jellyfin-movies/Pokemon 3 The Movie (2001).mkv
 pending|anime|1080p|/mnt/jellyfin-movies/Pokemon Movies 1-3 Collection Bonus (2001).mkv
 pending|anime|1080p|/mnt/jellyfin-movies/Pokemon The Movie 2000 (2000).mkv
@@ -45,4 +45,4 @@ pending|live|4k|/mnt/jellyfin-movies/The Prestige (2006).mkv
 pending|live|4k|/mnt/jellyfin-movies/The Shawshank Redemption (1994).mkv
 pending|live|4k|/mnt/jellyfin-movies/The Shining (1980).mkv
 pending|live|4k|/mnt/jellyfin-movies/The Terminator (1984).mkv
-pending|live|4k|/mnt/jellyfin-movies/Valerian and the City of a Thousand Planets (2017).mkv
+pending|live|1080p|/mnt/jellyfin-movies/Valerian and the City of a Thousand Planets (2017).mkv
