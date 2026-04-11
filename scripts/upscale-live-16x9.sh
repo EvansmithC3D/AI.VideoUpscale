@@ -93,7 +93,7 @@ while [ "$START" -lt "$DURATION" ]; do
     ffmpeg -y \
         -framerate "$FPS_ROUNDED" \
         -i "$WORK_DIR/upscaled/frame_%08d.png" \
-        -c:v libx265 -crf 18 -preset slow -pix_fmt yuv420p \
+        -c:v libx265 -crf 18 -preset medium -pix_fmt yuv420p \
         "$SEGMENT"
     ENCODE_EXIT=$?
 

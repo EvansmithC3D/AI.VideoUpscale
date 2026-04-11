@@ -265,15 +265,9 @@ while true; do
         continue
     fi
 
-    # If output already exists (job ran outside the daemon), mark done and skip
     DIR=$(dirname "$INPUT_FILE")
     BASE=$(basename "$INPUT_FILE" .mkv)
     OUTPUT_FILE="$DIR/$BASE [upscaled].mkv"
-    if [ -f "$OUTPUT_FILE" ]; then
-        log "Output already exists, marking done: $INPUT_FILE"
-        update_status "$INPUT_FILE" "done"
-        continue
-    fi
 
     # 4. Detect aspect ratio
     ASPECT=$(aspect_category "$INPUT_FILE")

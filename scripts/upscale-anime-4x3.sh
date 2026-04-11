@@ -81,14 +81,14 @@ while [ "$START" -lt "$DURATION" ]; do
         -n "$MODEL" \
         -m "$MODEL_PATH" \
         -s "$SCALE" \
-        -t 800 \
+        -t 0 \
         -g 0 -j 2:4:4 \
         -f png 2>&1 | grep -v "^$" | tail -3
 
     ffmpeg -y \
         -framerate "$FPS_ROUNDED" \
         -i "$WORK_DIR/upscaled/frame_%08d.png" \
-        -c:v libx265 -crf 18 -preset slow -pix_fmt yuv420p \
+        -c:v libx265 -crf 18 -preset medium -pix_fmt yuv420p \
         "$SEGMENT" 2>&1 | grep -E "frame=.*fps=" | tail -1
 
     echo "file '$SEGMENT'" >> "$SEGMENT_LIST"

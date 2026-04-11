@@ -84,14 +84,14 @@ while [ "$START" -lt "$DURATION" ]; do
         -n "$MODEL" \
         -m "$MODEL_PATH" \
         -s 2 \
-        -t 800 \
+        -t 0 \
         -g 0 -j 2:4:4 \
         -f png 2>&1 | grep -v "^$" | tail -3
 
     ffmpeg -y \
         -framerate "$FPS_ROUNDED" \
         -i "$WORK_DIR/upscaled/frame_%08d.png" \
-        -c:v libx265 -crf 18 -preset slow -pix_fmt yuv420p \
+        -c:v libx265 -crf 18 -preset medium -pix_fmt yuv420p \
         "$SEGMENT" 2>&1 | grep -E "frame=.*fps=" | tail -1
 
     echo "file '$SEGMENT'" >> "$P1_SEGMENT_LIST"
@@ -156,14 +156,14 @@ while [ "$START" -lt "$DURATION2" ]; do
         -n "$MODEL" \
         -m "$MODEL_PATH" \
         -s 2 \
-        -t 800 \
+        -t 0 \
         -g 0 -j 2:4:4 \
         -f png 2>&1 | grep -v "^$" | tail -3
 
     ffmpeg -y \
         -framerate "$FPS_ROUNDED" \
         -i "$WORK_DIR/upscaled/frame_%08d.png" \
-        -c:v libx265 -crf 18 -preset slow -pix_fmt yuv420p \
+        -c:v libx265 -crf 18 -preset medium -pix_fmt yuv420p \
         -x265-params "keyint=48:min-keyint=24" \
         "$SEGMENT" 2>&1 | grep -E "frame=.*fps=" | tail -1
 
