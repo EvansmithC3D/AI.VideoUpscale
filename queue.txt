@@ -4,7 +4,7 @@
 # TYPE       : live, anime
 # RESOLUTION : 1080p, 4k
 pending|live|4k|/mnt/jellyfin-movies/Challengers (2024).mkv
-pending|live|4k|/mnt/jellyfin-movies/Manhunter (1986).mkv
+error|live|4k|/mnt/jellyfin-movies/Manhunter (1986).mkv
 pending|live|4k|/mnt/jellyfin-movies/Amadeus (1984).mkv
 pending|live|4k|/mnt/jellyfin-movies/12 Angry Men (1957).mkv
 pending|live|4k|/mnt/jellyfin-movies/12 Years a Slave (2013).mkv

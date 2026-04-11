@@ -189,6 +189,7 @@ def main():
 
             elapsed = int(time.time() - chunk_wall_start)
             ts(f'  Chunk {chunk_idx + 1} done in {elapsed}s'
+               f' @ {chunk_fps:.3f} fps'
                f' — segment saved: {os.path.basename(segment_path)}')
 
     except (RuntimeError, KeyboardInterrupt) as e:
