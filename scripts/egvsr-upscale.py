@@ -28,6 +28,19 @@ import torch
 EGVSR_ROOT = '/usr/local/share/egvsr'
 WEIGHTS = os.path.join(EGVSR_ROOT, 'EGVSR_iter420000.pth')
 
+# Mean absolute pixel difference (in [0,1]) above which a frame is treated as a
+# hard cut.  0.10 catches most DVD scene changes while ignoring busy motion.
+SCENE_CHANGE_THRESHOLD = 0.10
+
+# Per-pixel diff at which the bicubic replacement weight reaches 1.0 (full
+# replacement).  Applied to an EMA-smoothed diff map so blend weights change
+# gradually rather than frame-to-frame, eliminating shimmer.
+MOTION_ALPHA_SCALE = 0.06
+
+# EMA decay for the per-pixel diff map.  0.4 = fairly responsive to new motion;
+# background MPEG noise (~1-3% per-frame flicker) averages toward zero.
+EMA_ALPHA = 0.4
+
 
 def ts(msg):
     print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] {msg}",
@@ -41,7 +54,7 @@ def extract_frames(input_mkv, start, duration, in_w, in_h, frames_dir):
         '-ss', str(start),
         '-t', str(duration),
         '-i', input_mkv,
-        '-vf', f'fieldmatch,yadif=deint=interlaced,decimate,scale={in_w}:{in_h}:flags=lanczos',
+        '-vf', f'fieldmatch=order=auto:combmatch=full,yadif=mode=0:parity=-1:deint=all,decimate,scale={in_w}:{in_h}:flags=lanczos',
         '-vsync', 'vfr', '-q:v', '1',
         os.path.join(frames_dir, 'frame_%08d.png'),
         '-an',
@@ -50,10 +63,39 @@ def extract_frames(input_mkv, start, duration, in_w, in_h, frames_dir):
     return len(glob.glob(os.path.join(frames_dir, '*.png')))
 
 
+def motion_blend_hr_prev(hr_prev, lr_cur, diff_map_f32):
+    """Blend hr_prev toward a bicubic upscale of lr_cur proportionally to per-pixel
+    motion magnitude.  Moving regions get bicubic (no ghost from wrong position);
+    static regions keep the real temporal state.  diff_map_f32 is (H, W, 3) in [0,1]."""
+    # Per-pixel weight: 0 = keep hr_prev, 1 = use bicubic
+    weight = np.clip(diff_map_f32 / MOTION_ALPHA_SCALE, 0.0, 1.0)          # (H, W, 3)
+    weight_t = torch.from_numpy(weight).permute(2, 0, 1).unsqueeze(0).cuda()  # (1,3,H,W)
+    weight_4x = torch.nn.functional.interpolate(
+        weight_t, scale_factor=4, mode='bilinear', align_corners=False
+    )
+    bicubic = torch.nn.functional.interpolate(
+        lr_cur, scale_factor=4, mode='bicubic', align_corners=False
+    ).clamp(0, 1)
+    return ((1.0 - weight_4x) * hr_prev + weight_4x * bicubic).clamp(0, 1).detach()
+
+
+def warmup_state(model, lr_cur, lr_prev, hr_prev, n):
+    """Run model n times on lr_cur (no output) to flush stale temporal state.
+    Returns updated (hr_prev, lr_prev)."""
+    for _ in range(n):
+        with torch.no_grad():
+            hr_prev = model(lr_cur, lr_cur, hr_prev).detach()
+    return hr_prev, lr_cur.detach()
+
+
 def process_chunk(frames_dir, chunk_fps, out_w, out_h, segment_path,
-                  model, hr_prev, lr_prev):
+                  model, hr_prev, lr_prev, scene_warmup=8, cold_start=False):
     """Run EGVSR on extracted frames, encode to VAAPI segment.
-    Returns updated (hr_prev, lr_prev) — state is NOT reset between chunks."""
+    Returns updated (hr_prev, lr_prev) — state is NOT reset between chunks.
+
+    scene_warmup: number of model passes (no output) run at hard cuts and cold
+                  start to flush stale hr_prev before writing real frames.
+    cold_start:   True for the very first chunk — forces warmup on frame 0."""
     frames = sorted(glob.glob(os.path.join(frames_dir, '*.png')))
     total = len(frames)
 
@@ -72,11 +114,50 @@ def process_chunk(frames_dir, chunk_fps, out_w, out_h, segment_path,
     print(f'  Processing {total} frames with EGVSR (4x → {out_w}x{out_h})...',
           file=sys.stderr, flush=True)
 
+    prev_img_f32 = None  # previous frame as float32 [0,1] BGR
+    ema_diff = None      # EMA-smoothed per-pixel diff map, float32 (H,W,3)
+    scene_changes = 0
+    motion_blends = 0
+
     for i, f in enumerate(frames):
         img = cv2.imread(f)
+        img_f32 = img.astype(np.float32) / 255.0
+
         lr_cur = torch.from_numpy(
             cv2.cvtColor(img, cv2.COLOR_BGR2RGB).astype(np.float32) / 255.0
         ).permute(2, 0, 1).unsqueeze(0).cuda()
+
+        # Temporal state management:
+        #   cold start / hard cut → full bicubic reset; EMA diff reset to zero
+        #   intra-scene motion    → EMA-smoothed per-pixel blend: moving regions
+        #                           get bicubic, static regions keep temporal state
+        if cold_start and i == 0:
+            hr_prev = torch.nn.functional.interpolate(
+                lr_cur, scale_factor=4, mode='bicubic', align_corners=False
+            ).clamp(0, 1).detach()
+            lr_prev = lr_cur.detach()
+            ema_diff = None
+        elif prev_img_f32 is not None:
+            diff_map = np.abs(img_f32 - prev_img_f32)
+            global_diff = diff_map.mean()
+            if global_diff > SCENE_CHANGE_THRESHOLD:
+                scene_changes += 1
+                hr_prev = torch.nn.functional.interpolate(
+                    lr_cur, scale_factor=4, mode='bicubic', align_corners=False
+                ).clamp(0, 1).detach()
+                lr_prev = lr_cur.detach()
+                ema_diff = None
+            else:
+                # Update EMA diff: seed with raw diff on first frame after cut
+                if ema_diff is None:
+                    ema_diff = diff_map
+                else:
+                    ema_diff = EMA_ALPHA * diff_map + (1.0 - EMA_ALPHA) * ema_diff
+                if ema_diff.max() > MOTION_ALPHA_SCALE * 0.5:
+                    motion_blends += 1
+                    hr_prev = motion_blend_hr_prev(hr_prev, lr_cur, ema_diff)
+
+        prev_img_f32 = img_f32
 
         with torch.no_grad():
             hr = model(lr_cur, lr_prev, hr_prev)
@@ -99,7 +180,7 @@ def process_chunk(frames_dir, chunk_fps, out_w, out_h, segment_path,
     if not os.path.exists(segment_path) or os.path.getsize(segment_path) == 0:
         raise RuntimeError(f'segment missing or empty: {segment_path}')
 
-    return hr_prev, lr_prev
+    return hr_prev, lr_prev, scene_changes, motion_blends
 
 
 def main():
@@ -114,6 +195,9 @@ def main():
     parser.add_argument('--duration', type=int, required=True,
                         help='Total source duration in integer seconds')
     parser.add_argument('--chunk-sec', type=int, default=600)
+    parser.add_argument('--scene-warmup', type=int, default=30,
+                        help='Model passes (no output) run at hard scene cuts and '
+                             'cold start to flush stale temporal state (default: 8)')
     args = parser.parse_args()
 
     torch.backends.cudnn.benchmark = True
@@ -138,6 +222,7 @@ def main():
 
     hr_prev = None
     lr_prev = None
+    cold_start = True
 
     segments_txt = open(segment_list_path, 'w')
     try:
@@ -178,19 +263,28 @@ def main():
                     lr_prev = torch.zeros(1, 3, h, w,
                                          dtype=torch.float32).cuda()
 
-                hr_prev, lr_prev = process_chunk(
+                hr_prev, lr_prev, scene_changes, motion_blends = process_chunk(
                     frames_dir, chunk_fps,
                     args.out_width, args.out_height,
-                    segment_path, model, hr_prev, lr_prev
+                    segment_path, model, hr_prev, lr_prev,
+                    scene_warmup=args.scene_warmup,
+                    cold_start=cold_start,
                 )
+                cold_start = False
 
             segments_txt.write(f"file '{segment_path}'\n")
             segments_txt.flush()
 
             elapsed = int(time.time() - chunk_wall_start)
+            notes = []
+            if scene_changes:
+                notes.append(f'scene cuts: {scene_changes}')
+            if motion_blends:
+                notes.append(f'motion blends: {motion_blends}')
             ts(f'  Chunk {chunk_idx + 1} done in {elapsed}s'
                f' @ {chunk_fps:.3f} fps'
-               f' — segment saved: {os.path.basename(segment_path)}')
+               f' — segment saved: {os.path.basename(segment_path)}'
+               + (f'  [{", ".join(notes)}]' if notes else ''))
 
     except (RuntimeError, KeyboardInterrupt) as e:
         ts(f'ERROR: {e}')

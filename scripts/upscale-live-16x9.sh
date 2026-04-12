@@ -65,7 +65,7 @@ while [ "$START" -lt "$DURATION" ]; do
 
     # Extract frames: IVTC (reverse 3:2 pulldown), then scale to 960x540
     ffmpeg -y -ss "$START" -t "$CHUNK_SEC" -i "$INPUT" \
-        -vf "fieldmatch,yadif=deint=interlaced,decimate,scale=${HALF_W}:${HALF_H}:flags=lanczos" -vsync vfr -q:v 1 \
+        -vf "fieldmatch=order=auto:combmatch=full,yadif=mode=0:parity=-1:deint=all,decimate,scale=${HALF_W}:${HALF_H}:flags=lanczos" -vsync vfr -q:v 1 \
         "$WORK_DIR/frames/frame_%08d.png" -an \
         2>&1 | grep -E "^frame=" | tail -1
 
