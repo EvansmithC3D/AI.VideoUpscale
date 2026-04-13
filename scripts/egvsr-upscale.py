@@ -38,14 +38,30 @@ def ts(msg):
           file=sys.stderr, flush=True)
 
 
-def extract_frames(input_mkv, start, duration, in_w, in_h, frames_dir):
-    """Extract IVTC'd, scaled frames for one chunk. Returns frame count."""
+def extract_frames(input_mkv, start, duration, in_w, in_h, frames_dir, denoise='none'):
+    """Extract IVTC'd, scaled frames for one chunk. Returns frame count.
+
+    denoise: 'none'    — no denoising (preserve film grain; best for pre-2000 film)
+             'spatial' — per-frame spatial denoising only (hqdn3d luma/chroma, no temporal)
+             'full'    — spatial + temporal denoising (hqdn3d with temporal smoothing)
+    deint=all ensures every frame is deinterlaced regardless of stream flags, which is
+    important for DVD sources where progressive-flagged frames can still carry combing."""
+    vf = [
+        'fieldmatch=order=auto:combmatch=full',
+        'yadif=mode=0:parity=-1:deint=all',
+        'decimate',
+    ]
+    if denoise == 'spatial':
+        vf.append('hqdn3d=4:3:0:0')
+    elif denoise == 'full':
+        vf.append('hqdn3d=4:3:6:4.5')
+    vf.append(f'scale={in_w}:{in_h}:flags=lanczos')
     cmd = [
         'ffmpeg', '-y',
         '-ss', str(start),
         '-t', str(duration),
         '-i', input_mkv,
-        '-vf', f'fieldmatch=order=auto:combmatch=full,yadif=mode=0:parity=-1:deint=interlaced,decimate,deblock,hqdn3d=4:3:6:4.5,scale={in_w}:{in_h}:flags=lanczos',
+        '-vf', ','.join(vf),
         '-vsync', 'vfr', '-q:v', '1',
         os.path.join(frames_dir, 'frame_%08d.png'),
         '-an',
@@ -101,13 +117,16 @@ def process_chunk(frames_dir, chunk_fps, out_w, out_h, segment_path,
         ).permute(2, 0, 1).unsqueeze(0).cuda()
 
         # Temporal state management:
-        #   cold start → bicubic seed for hr_prev
-        #   hard cut   → full bicubic reset of hr_prev
+        #   cold start / hard cut → bicubic seed for hr_prev, then N warmup passes
+        #   (warmup runs model on the current frame without writing output so the
+        #   recurrent state settles before the first real output frame)
         if cold_start and i == 0:
             hr_prev = torch.nn.functional.interpolate(
                 lr_cur, scale_factor=4, mode='bicubic', align_corners=False
             ).clamp(0, 1).detach()
             lr_prev = lr_cur.detach()
+            if scene_warmup > 0:
+                hr_prev, lr_prev = warmup_state(model, lr_cur, lr_prev, hr_prev, scene_warmup)
         elif prev_img_f32 is not None:
             global_diff = np.abs(img_f32 - prev_img_f32).mean()
             if global_diff > SCENE_CHANGE_THRESHOLD:
@@ -116,6 +135,8 @@ def process_chunk(frames_dir, chunk_fps, out_w, out_h, segment_path,
                     lr_cur, scale_factor=4, mode='bicubic', align_corners=False
                 ).clamp(0, 1).detach()
                 lr_prev = lr_cur.detach()
+                if scene_warmup > 0:
+                    hr_prev, lr_prev = warmup_state(model, lr_cur, lr_prev, hr_prev, scene_warmup)
 
         prev_img_f32 = img_f32
 
@@ -155,9 +176,13 @@ def main():
     parser.add_argument('--duration', type=int, required=True,
                         help='Total source duration in integer seconds')
     parser.add_argument('--chunk-sec', type=int, default=600)
-    parser.add_argument('--scene-warmup', type=int, default=30,
-                        help='Model passes (no output) run at hard scene cuts and '
-                             'cold start to flush stale temporal state (default: 8)')
+    parser.add_argument('--scene-warmup', type=int, default=3,
+                        help='Model passes (no output) run at cold start and hard scene '
+                             'cuts to settle temporal state before writing frames (default: 3)')
+    parser.add_argument('--denoise', choices=['none', 'spatial', 'full'], default='none',
+                        help='Pre-EGVSR denoising: none=preserve grain (pre-2000 film), '
+                             'spatial=per-frame only (hqdn3d luma/chroma, no temporal), '
+                             'full=spatial+temporal (default: none)')
     args = parser.parse_args()
 
     torch.backends.cudnn.benchmark = True
@@ -200,7 +225,8 @@ def main():
                 try:
                     frame_count = extract_frames(
                         args.input, start, chunk_dur,
-                        args.in_width, args.in_height, frames_dir
+                        args.in_width, args.in_height, frames_dir,
+                        denoise=args.denoise,
                     )
                 except subprocess.CalledProcessError as e:
                     raise RuntimeError(f'Frame extraction failed: {e}')

@@ -5,11 +5,23 @@
 # EGVSR runs as a single Python process across all chunks — model loads once,
 # hr_prev/lr_prev state carries across chunk boundaries (no warmup artifacts).
 # Encoding: hevc_vaapi (AMD GPU hardware encoder, VCN) — frees CPU from libx265
-# Usage: ./upscale-live-4x3-4k.sh "input.mkv" "output.mkv" [chunk_minutes=10]
+# Usage: ./upscale-live-4x3-4k.sh "input.mkv" "output.mkv" [chunk_minutes=10] [denoise=none|spatial|full]
+# denoise defaults by year parsed from filename: pre-2000 → none (preserve grain), 2000+ → spatial
 
 INPUT="$1"
 OUTPUT="$2"
 CHUNK_MIN="${3:-10}"
+DENOISE="${4:-}"
+
+# Year-based denoise default if not explicitly set
+if [[ -z "$DENOISE" ]]; then
+    YEAR=$(basename "$INPUT" .mkv | grep -oE '\([0-9]{4}\)' | tr -d '()' | tail -1)
+    if [[ -n "$YEAR" && "$YEAR" -lt 2000 ]]; then
+        DENOISE="none"
+    else
+        DENOISE="spatial"
+    fi
+fi
 
 QUARTER_W=720
 QUARTER_H=540
@@ -32,6 +44,7 @@ echo "Output:   $OUTPUT"
 echo "Model:    EGVSR (4x, live-action, PyTorch/ROCm)"
 echo "Pipeline: ${QUARTER_W}x${QUARTER_H} → 4x → $((QUARTER_W * SCALE))x$((QUARTER_H * SCALE))"
 echo "Chunk:    ${CHUNK_MIN} minutes"
+echo "Denoise:  $DENOISE"
 echo ""
 
 FPS=$(ffprobe -v error -select_streams v:0 -show_entries stream=r_frame_rate \
@@ -57,7 +70,8 @@ HSA_OVERRIDE_GFX_VERSION=10.3.0 python3 "$SCRIPT_DIR/egvsr-upscale.py" \
     --out-width "$OUT_W" \
     --out-height "$OUT_H" \
     --duration "$DURATION" \
-    --chunk-sec "$CHUNK_SEC"
+    --chunk-sec "$CHUNK_SEC" \
+    --denoise "$DENOISE"
 PYTHON_EXIT=$?
 
 if [ "$PYTHON_EXIT" -ne 0 ]; then

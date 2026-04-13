@@ -3,13 +3,15 @@
 # Continuously scans MEDIA_DIR for unupscaled MKVs and processes them one at a time.
 #
 # Queue file format (one entry per line):
-#   STATUS|TYPE|RESOLUTION|/absolute/path/to/file.mkv
+#   STATUS|TYPE|RESOLUTION|/absolute/path/to/file.mkv[|DENOISE]
 #   STATUS     : pending, done, error, skip
 #   TYPE       : live, anime
 #   RESOLUTION : 1080p, 4k
+#   DENOISE    : none, spatial, full  (optional; live 4k only — omit to use year-based default)
 #
 # New files are auto-discovered; TYPE is detected automatically (live/anime).
-# Override TYPE or set RESOLUTION to 4k in queue.txt before the daemon picks up an entry.
+# Override TYPE, RESOLUTION, or DENOISE in queue.txt before the daemon picks up an entry.
+# DENOISE year-based default: pre-2000 film → none (preserve grain), 2000+ → spatial.
 #
 # Usage:
 #   nohup bash scripts/queue-daemon.sh >> /home/evanna/upscale-queue.log 2>&1 &
@@ -35,11 +37,12 @@ log() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*"; }
 # ---------------------------------------------------------------------------
 if [ ! -f "$QUEUE_FILE" ]; then
     cat > "$QUEUE_FILE" <<'EOF'
-# Upscale queue — edit TYPE and RESOLUTION before the daemon picks up a title
-# STATUS|TYPE|RESOLUTION|/absolute/path/to/file.mkv
+# Upscale queue — edit TYPE, RESOLUTION, or DENOISE before the daemon picks up a title
+# STATUS|TYPE|RESOLUTION|/absolute/path/to/file.mkv[|DENOISE]
 # STATUS     : pending, done, error, skip
 # TYPE       : live, anime
 # RESOLUTION : 1080p, 4k
+# DENOISE    : none, spatial, full  (optional; live 4k only; omit for year-based default)
 EOF
     log "Created queue file: $QUEUE_FILE"
 fi
@@ -186,7 +189,8 @@ update_status() {
     local tmp
     tmp=$(mktemp)
     while IFS= read -r line; do
-        if [[ "$line" == *"|$input" ]]; then
+        # Match path as 4th field — may be followed by more fields (e.g. |denoise) or end of line
+        if [[ "$line" == *"|${input}|"* || "$line" == *"|${input}" ]]; then
             echo "${new_status}|${line#*|}"
         else
             echo "$line"
@@ -256,7 +260,7 @@ while true; do
         continue
     fi
 
-    IFS='|' read -r _status TYPE RESOLUTION INPUT_FILE <<< "$NEXT_LINE"
+    IFS='|' read -r _status TYPE RESOLUTION INPUT_FILE DENOISE_OVERRIDE <<< "$NEXT_LINE"
 
     # Validate
     if [ ! -f "$INPUT_FILE" ]; then
@@ -294,10 +298,12 @@ while true; do
     log "Output   : $OUTPUT_FILE"
     log "Script   : $(basename "$SCRIPT")"
     log "Aspect   : $ASPECT"
+    [[ -n "$DENOISE_OVERRIDE" ]] && log "Denoise  : $DENOISE_OVERRIDE (override)"
     log "Job log  : $TITLE_LOG"
 
     # 7. Run job (blocking — daemon waits for completion)
-    bash "$SCRIPT" "$INPUT_FILE" "$OUTPUT_FILE" >> "$TITLE_LOG" 2>&1
+    # $4 = denoise override (empty = script applies year-based default; ignored by non-EGVSR scripts)
+    bash "$SCRIPT" "$INPUT_FILE" "$OUTPUT_FILE" "" "$DENOISE_OVERRIDE" >> "$TITLE_LOG" 2>&1
     JOB_EXIT=$?
 
     # 8. Verify output
