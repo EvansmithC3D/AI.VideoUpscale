@@ -32,15 +32,6 @@ WEIGHTS = os.path.join(EGVSR_ROOT, 'EGVSR_iter420000.pth')
 # hard cut.  0.10 catches most DVD scene changes while ignoring busy motion.
 SCENE_CHANGE_THRESHOLD = 0.10
 
-# Per-pixel diff at which the bicubic replacement weight reaches 1.0 (full
-# replacement).  Applied to an EMA-smoothed diff map so blend weights change
-# gradually rather than frame-to-frame, eliminating shimmer.
-MOTION_ALPHA_SCALE = 0.06
-
-# EMA decay for the per-pixel diff map.  0.4 = fairly responsive to new motion;
-# background MPEG noise (~1-3% per-frame flicker) averages toward zero.
-EMA_ALPHA = 0.4
-
 
 def ts(msg):
     print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] {msg}",
@@ -54,29 +45,13 @@ def extract_frames(input_mkv, start, duration, in_w, in_h, frames_dir):
         '-ss', str(start),
         '-t', str(duration),
         '-i', input_mkv,
-        '-vf', f'fieldmatch=order=auto:combmatch=full,yadif=mode=0:parity=-1:deint=all,decimate,scale={in_w}:{in_h}:flags=lanczos',
+        '-vf', f'fieldmatch=order=auto:combmatch=full,yadif=mode=0:parity=-1:deint=interlaced,decimate,deblock,hqdn3d=4:3:6:4.5,scale={in_w}:{in_h}:flags=lanczos',
         '-vsync', 'vfr', '-q:v', '1',
         os.path.join(frames_dir, 'frame_%08d.png'),
         '-an',
     ]
     subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     return len(glob.glob(os.path.join(frames_dir, '*.png')))
-
-
-def motion_blend_hr_prev(hr_prev, lr_cur, diff_map_f32):
-    """Blend hr_prev toward a bicubic upscale of lr_cur proportionally to per-pixel
-    motion magnitude.  Moving regions get bicubic (no ghost from wrong position);
-    static regions keep the real temporal state.  diff_map_f32 is (H, W, 3) in [0,1]."""
-    # Per-pixel weight: 0 = keep hr_prev, 1 = use bicubic
-    weight = np.clip(diff_map_f32 / MOTION_ALPHA_SCALE, 0.0, 1.0)          # (H, W, 3)
-    weight_t = torch.from_numpy(weight).permute(2, 0, 1).unsqueeze(0).cuda()  # (1,3,H,W)
-    weight_4x = torch.nn.functional.interpolate(
-        weight_t, scale_factor=4, mode='bilinear', align_corners=False
-    )
-    bicubic = torch.nn.functional.interpolate(
-        lr_cur, scale_factor=4, mode='bicubic', align_corners=False
-    ).clamp(0, 1)
-    return ((1.0 - weight_4x) * hr_prev + weight_4x * bicubic).clamp(0, 1).detach()
 
 
 def warmup_state(model, lr_cur, lr_prev, hr_prev, n):
@@ -114,10 +89,8 @@ def process_chunk(frames_dir, chunk_fps, out_w, out_h, segment_path,
     print(f'  Processing {total} frames with EGVSR (4x → {out_w}x{out_h})...',
           file=sys.stderr, flush=True)
 
-    prev_img_f32 = None  # previous frame as float32 [0,1] BGR
-    ema_diff = None      # EMA-smoothed per-pixel diff map, float32 (H,W,3)
     scene_changes = 0
-    motion_blends = 0
+    prev_img_f32 = None  # previous frame as float32 [0,1] BGR
 
     for i, f in enumerate(frames):
         img = cv2.imread(f)
@@ -128,34 +101,21 @@ def process_chunk(frames_dir, chunk_fps, out_w, out_h, segment_path,
         ).permute(2, 0, 1).unsqueeze(0).cuda()
 
         # Temporal state management:
-        #   cold start / hard cut → full bicubic reset; EMA diff reset to zero
-        #   intra-scene motion    → EMA-smoothed per-pixel blend: moving regions
-        #                           get bicubic, static regions keep temporal state
+        #   cold start → bicubic seed for hr_prev
+        #   hard cut   → full bicubic reset of hr_prev
         if cold_start and i == 0:
             hr_prev = torch.nn.functional.interpolate(
                 lr_cur, scale_factor=4, mode='bicubic', align_corners=False
             ).clamp(0, 1).detach()
             lr_prev = lr_cur.detach()
-            ema_diff = None
         elif prev_img_f32 is not None:
-            diff_map = np.abs(img_f32 - prev_img_f32)
-            global_diff = diff_map.mean()
+            global_diff = np.abs(img_f32 - prev_img_f32).mean()
             if global_diff > SCENE_CHANGE_THRESHOLD:
                 scene_changes += 1
                 hr_prev = torch.nn.functional.interpolate(
                     lr_cur, scale_factor=4, mode='bicubic', align_corners=False
                 ).clamp(0, 1).detach()
                 lr_prev = lr_cur.detach()
-                ema_diff = None
-            else:
-                # Update EMA diff: seed with raw diff on first frame after cut
-                if ema_diff is None:
-                    ema_diff = diff_map
-                else:
-                    ema_diff = EMA_ALPHA * diff_map + (1.0 - EMA_ALPHA) * ema_diff
-                if ema_diff.max() > MOTION_ALPHA_SCALE * 0.5:
-                    motion_blends += 1
-                    hr_prev = motion_blend_hr_prev(hr_prev, lr_cur, ema_diff)
 
         prev_img_f32 = img_f32
 
@@ -180,7 +140,7 @@ def process_chunk(frames_dir, chunk_fps, out_w, out_h, segment_path,
     if not os.path.exists(segment_path) or os.path.getsize(segment_path) == 0:
         raise RuntimeError(f'segment missing or empty: {segment_path}')
 
-    return hr_prev, lr_prev, scene_changes, motion_blends
+    return hr_prev, lr_prev, scene_changes
 
 
 def main():
@@ -263,7 +223,7 @@ def main():
                     lr_prev = torch.zeros(1, 3, h, w,
                                          dtype=torch.float32).cuda()
 
-                hr_prev, lr_prev, scene_changes, motion_blends = process_chunk(
+                hr_prev, lr_prev, scene_changes = process_chunk(
                     frames_dir, chunk_fps,
                     args.out_width, args.out_height,
                     segment_path, model, hr_prev, lr_prev,
@@ -279,8 +239,6 @@ def main():
             notes = []
             if scene_changes:
                 notes.append(f'scene cuts: {scene_changes}')
-            if motion_blends:
-                notes.append(f'motion blends: {motion_blends}')
             ts(f'  Chunk {chunk_idx + 1} done in {elapsed}s'
                f' @ {chunk_fps:.3f} fps'
                f' — segment saved: {os.path.basename(segment_path)}'
