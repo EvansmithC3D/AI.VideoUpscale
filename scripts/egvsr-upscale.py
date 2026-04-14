@@ -47,9 +47,18 @@ def extract_frames(input_mkv, start, duration, in_w, in_h, frames_dir, denoise='
     deint=all ensures every frame is deinterlaced regardless of stream flags, which is
     important for DVD sources where progressive-flagged frames can still carry combing."""
     vf = [
-        'fieldmatch=order=auto:combmatch=full',
+        # combmatch=sc: full field-analysis only on scene changes (valid values: none/sc/full).
+        # combmatch=full was too aggressive on MPEG-2 sources — block-edge patterns triggered
+        # false-positive field matches → horizontal blending artifacts.
+        'fieldmatch=order=auto:combmatch=sc',
         'yadif=mode=0:parity=-1:deint=all',
         'decimate',
+        # MPEG-2 postprocessing: removes 8x8 DCT block edges before EGVSR sees the frame.
+        # Without this, EGVSR (trained on bicubic degradation) interprets block boundaries
+        # as real structure and hallucinates a screendoor/grid artifact.
+        # Uses ffmpeg's built-in deblock filter (libpostproc/pp not available in this build).
+        # Per-frame only — no temporal smearing. Applied regardless of denoise setting.
+        'deblock',
     ]
     if denoise == 'spatial':
         vf.append('hqdn3d=4:3:0:0')
