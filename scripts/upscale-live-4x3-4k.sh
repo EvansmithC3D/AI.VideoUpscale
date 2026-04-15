@@ -62,7 +62,7 @@ mkdir -p "$SEGMENTS_DIR"
 SEGMENT_LIST="$SEGMENTS_DIR/segments.txt"
 
 ts "[Processing] Launching EGVSR pipeline (single process, state persists across chunks)..."
-HSA_OVERRIDE_GFX_VERSION=10.3.0 python3 "$SCRIPT_DIR/egvsr-upscale.py" \
+HSA_OVERRIDE_GFX_VERSION=10.3.0 PYTORCH_HIP_ALLOC_CONF=expandable_segments:True python3 "$SCRIPT_DIR/egvsr-upscale.py" \
     --input "$INPUT" \
     --segments-dir "$SEGMENTS_DIR" \
     --in-width "$QUARTER_W" \

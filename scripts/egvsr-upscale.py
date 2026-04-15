@@ -158,6 +158,12 @@ def process_chunk(frames_dir, chunk_fps, out_w, out_h, segment_path,
         out = out.flip(0).permute(1, 2, 0).contiguous()
         ffmpeg_proc.stdin.write(out.cpu().numpy().tobytes())
         ffmpeg_proc.stdin.flush()
+        del out
+
+        # Periodically release the HIP/ROCm memory pool to prevent fragmentation
+        # accumulating over thousands of frames in a single chunk.
+        if (i + 1) % 500 == 0:
+            torch.cuda.empty_cache()
 
         if (i + 1) % 100 == 0 or i == total - 1:
             print(f'  Frame {i + 1}/{total}', file=sys.stderr, flush=True)
