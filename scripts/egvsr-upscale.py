@@ -160,9 +160,8 @@ def process_chunk(frames_dir, chunk_fps, out_w, out_h, segment_path,
         ffmpeg_proc.stdin.flush()
         del out
 
-        # Periodically release the HIP/ROCm memory pool to prevent fragmentation
-        # accumulating over thousands of frames in a single chunk.
-        if (i + 1) % 500 == 0:
+        # Periodically release the HIP/ROCm memory pool to prevent fragmentation.
+        if (i + 1) % 100 == 0:
             torch.cuda.empty_cache()
 
         if (i + 1) % 100 == 0 or i == total - 1:
@@ -211,11 +210,10 @@ def main():
     model.load_state_dict(ckpt, strict=False)
     model = model.cuda().eval()
 
-    try:
-        model = torch.compile(model)
-        print('  torch.compile: enabled', file=sys.stderr, flush=True)
-    except Exception as e:
-        print(f'  torch.compile: skipped ({e})', file=sys.stderr, flush=True)
+    # torch.compile is disabled: on ROCm/gfx1031 it caches a new compiled graph
+    # variant on each scene-change warmup, silently growing VRAM by ~1 GB per
+    # 1000 frames until OOM. The uncompiled model is fast enough on this GPU.
+    print('  torch.compile: disabled (ROCm graph-cache leak)', file=sys.stderr, flush=True)
 
     total_chunks = (args.duration + args.chunk_sec - 1) // args.chunk_sec
     segment_list_path = os.path.join(args.segments_dir, 'segments.txt')
