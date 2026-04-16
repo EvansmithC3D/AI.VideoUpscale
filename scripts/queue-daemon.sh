@@ -181,6 +181,46 @@ select_script() {
 }
 
 # ---------------------------------------------------------------------------
+# Push queue.txt to GitHub after a status change so the remote monitor agent
+# can read current state and reset errors to pending.
+# Silently no-ops if git isn't configured or the push fails.
+# ---------------------------------------------------------------------------
+git_push_status() {
+    local msg="$1"
+    local repo_dir
+    repo_dir=$(dirname "$QUEUE_FILE")
+    git -C "$repo_dir" add queue.txt 2>/dev/null || return
+    git -C "$repo_dir" diff --cached --quiet 2>/dev/null && return  # nothing new to commit
+    git -C "$repo_dir" commit -m "$msg" --quiet 2>/dev/null || return
+    git -C "$repo_dir" push --quiet 2>/dev/null || true
+}
+
+# ---------------------------------------------------------------------------
+# Commit the tail of a failed job's log to errors/<slug>-<timestamp>.txt so
+# the remote monitor agent can read it and diagnose the failure.
+# ---------------------------------------------------------------------------
+commit_error_log() {
+    local input="$1" title_log="$2"
+    local repo_dir slug timestamp error_dir error_file
+    repo_dir=$(dirname "$QUEUE_FILE")
+    slug=$(log_slug "$input")
+    timestamp=$(date '+%Y%m%d-%H%M%S')
+    error_dir="$repo_dir/errors"
+    error_file="$error_dir/${slug}-${timestamp}.txt"
+
+    mkdir -p "$error_dir"
+    {
+        echo "File   : $input"
+        echo "Time   : $(date '+%Y-%m-%d %H:%M:%S')"
+        echo "Log    : $title_log"
+        echo "---"
+        tail -60 "$title_log" 2>/dev/null || echo "(log not found)"
+    } > "$error_file"
+
+    git -C "$repo_dir" add "$error_file" 2>/dev/null || true
+}
+
+# ---------------------------------------------------------------------------
 # Update a queue entry's status in-place
 #   update_status "/path/to/file.mkv" "done"
 # ---------------------------------------------------------------------------
@@ -241,6 +281,9 @@ log "Queue file : $QUEUE_FILE"
 log "Media dir  : $MEDIA_DIR"
 
 while true; do
+    # 0. Sync with remote — picks up error→pending resets from the remote monitor agent
+    git -C "$(dirname "$QUEUE_FILE")" pull --rebase --autostash --quiet 2>/dev/null || true
+
     # 1. Discover new files
     scan_new_files
 
@@ -266,6 +309,7 @@ while true; do
     if [ ! -f "$INPUT_FILE" ]; then
         log "ERROR: File not found: $INPUT_FILE — marking error"
         update_status "$INPUT_FILE" "error"
+        git_push_status "queue: error - $(basename "$INPUT_FILE")"
         continue
     fi
 
@@ -278,6 +322,7 @@ while true; do
     if [ "$ASPECT" = "unknown" ]; then
         log "ERROR: Could not determine aspect ratio for $INPUT_FILE — marking error"
         update_status "$INPUT_FILE" "error"
+        git_push_status "queue: error - $(basename "$INPUT_FILE")"
         continue
     fi
 
@@ -286,6 +331,7 @@ while true; do
     if [ ! -f "$SCRIPT" ]; then
         log "ERROR: No script for type=$TYPE res=$RESOLUTION aspect=$ASPECT — marking error"
         update_status "$INPUT_FILE" "error"
+        git_push_status "queue: error - $(basename "$INPUT_FILE")"
         continue
     fi
 
@@ -310,8 +356,11 @@ while true; do
     if [ $JOB_EXIT -eq 0 ] && [ -f "$OUTPUT_FILE" ]; then
         update_status "$INPUT_FILE" "done"
         log "DONE: $INPUT_FILE"
+        git_push_status "queue: done - $(basename "$INPUT_FILE")"
     else
         update_status "$INPUT_FILE" "error"
         log "ERROR: Job failed (exit $JOB_EXIT) for $INPUT_FILE — check $TITLE_LOG"
+        commit_error_log "$INPUT_FILE" "$TITLE_LOG"
+        git_push_status "queue: error - $(basename "$INPUT_FILE")"
     fi
 done
