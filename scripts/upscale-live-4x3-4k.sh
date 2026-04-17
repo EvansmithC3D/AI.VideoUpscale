@@ -97,7 +97,8 @@ ffmpeg -y \
 rm -rf "$SEGMENTS_DIR"
 
 ts "[Final] Rebuilding seek index with mkvmerge..."
-mkvmerge -o "$OUTPUT" "$MUXED_TMP" 2>&1 | grep -E "Progress: 100%|Warning|Error" | tail -2
+mkvmerge --cues 0:all --cues 1:all --cues 2:all --cues 3:all --cues 4:all \
+  -o "$OUTPUT" "$MUXED_TMP" 2>&1 | grep -E "Progress: 100%|Warning|Error" | tail -2
 rm -f "$MUXED_TMP"
 
 echo ""

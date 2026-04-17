@@ -4,14 +4,14 @@
 # TYPE       : live, anime
 # RESOLUTION : 1080p, 4k
 # DENOISE    : none, spatial, full  (optional; live 4k only; omit for year-based default)
-pending|live|4k|/mnt/jellyfin-movies/Challengers (2024).mkv
+pending|live|1080p|/mnt/jellyfin-movies/Challengers (2024).mkv
 done|live|4k|/mnt/jellyfin-movies/Manhunter (1986).mkv
-pending|live|4k|/mnt/jellyfin-movies/Amadeus (1984).mkv
-pending|live|4k|/mnt/jellyfin-movies/12 Angry Men (1957).mkv
-pending|live|4k|/mnt/jellyfin-movies/12 Years a Slave (2013).mkv
+done|live|4k|/mnt/jellyfin-movies/Amadeus (1984).mkv
+done|live|4k|/mnt/jellyfin-movies/12 Angry Men (1957).mkv
+done|live|4k|/mnt/jellyfin-movies/12 Years a Slave (2013).mkv
 pending|live|4k|/mnt/jellyfin-movies/2001 A Space Odyssey (1968).mkv
 pending|live|4k|/mnt/jellyfin-movies/American Psycho (2000).mkv
-pending|live|4k|/mnt/jellyfin-movies/An American Haunting (2005).mkv
+done|live|4k|/mnt/jellyfin-movies/An American Haunting (2005).mkv
 pending|live|4k|/mnt/jellyfin-movies/Apocalypse Now Redux (2001).mkv
 pending|live|4k|/mnt/jellyfin-movies/Catch Me If You Can (2002).mkv
 pending|live|4k|/mnt/jellyfin-movies/Dark Was the Night (2014).mkv

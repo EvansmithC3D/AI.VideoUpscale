@@ -37,18 +37,11 @@ for INPUT in "${FILES[@]}"; do
         continue
     fi
 
-    # Check if already remuxed by mkvmerge (writing app contains "mkvmerge")
-    WRITING_APP=$(mkvinfo "$INPUT" 2>/dev/null | grep "Writing application" | head -1)
-    if echo "$WRITING_APP" | grep -q "mkvmerge"; then
-        ts "SKIP (already mkvmerge-remuxed): $BASENAME"
-        SKIPPED=$((SKIPPED + 1))
-        continue
-    fi
-
-    ts "Processing (ffmpeg concat cues are empty → rebuilding): $BASENAME"
+    ts "Processing: $BASENAME"
     START_T=$(date +%s)
 
-    mkvmerge -o "$TMPFILE" "$INPUT" 2>&1 | grep -E "Progress|Warning|Error" | tail -5
+    mkvmerge --cues 0:all --cues 1:all --cues 2:all --cues 3:all --cues 4:all \
+      -o "$TMPFILE" "$INPUT" 2>&1 | grep -E "Progress|Warning|Error" | tail -5
 
     RC=$?
     ELAPSED=$(( $(date +%s) - START_T ))

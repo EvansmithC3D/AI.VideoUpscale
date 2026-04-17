@@ -54,16 +54,17 @@ def extract_frames(input_mkv, start, duration, in_w, in_h, frames_dir, denoise='
         'yadif=mode=0:parity=-1:deint=all',
         'decimate',
         # MPEG-2 postprocessing: removes 8x8 DCT block edges before EGVSR sees the frame.
-        # Without this, EGVSR (trained on bicubic degradation) interprets block boundaries
-        # as real structure and hallucinates a screendoor/grid artifact.
-        # Uses ffmpeg's built-in deblock filter (libpostproc/pp not available in this build).
-        # Per-frame only — no temporal smearing. Applied regardless of denoise setting.
-        'deblock',
+        # spp (Simple PostProcessing) averages multiple shifted DCT transforms — it targets
+        # the 8x8 block structure specifically, removing grid artifacts with less collateral
+        # blur than the generic deblock filter. quality=4 balances speed vs thoroughness.
+        'spp=quality=4',
     ]
     if denoise == 'spatial':
-        vf.append('hqdn3d=4:3:0:0')
+        # Mild spatial denoise only — spp already smooths block boundaries so full-strength
+        # hqdn3d on top causes mushiness on clean digital sources.
+        vf.append('hqdn3d=2:1.5:0:0')
     elif denoise == 'full':
-        vf.append('hqdn3d=4:3:6:4.5')
+        vf.append('hqdn3d=2:1.5:6:4.5')
     vf.append(f'scale={in_w}:{in_h}:flags=lanczos')
     cmd = [
         'ffmpeg', '-y',
