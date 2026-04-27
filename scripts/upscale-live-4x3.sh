@@ -1,11 +1,19 @@
 #!/bin/bash
 # Upscale a live-action fullscreen (4:3) MKV to 1080p using Real-ESRGAN x2plus (ncnn-vulkan)
 # Pre-scales to 720x540 so 2x output lands exactly at 1440x1080
-# Usage: ./upscale-live-4x3.sh "input.mkv" "output.mkv" [chunk_minutes=5]
+# Usage: ./upscale-live-4x3.sh "input.mkv" "output.mkv" [chunk_minutes=5] [postfilter=atadenoise=s=5]
+#
+# postfilter: ffmpeg -vf expression applied to upscaled frames before final encode.
+#   "none"                   — skip (original behaviour)
+#   "atadenoise=s=5"         — 5-frame adaptive temporal avg; kills single-image-model flicker (default)
+#   "atadenoise=s=9"         — stronger; risks mild motion blur
+#   "deflicker=mode=am:size=5" — global-brightness deflicker
+#   Any custom ffmpeg filter-chain string is passed through verbatim.
 
 INPUT="$1"
 OUTPUT="$2"
 CHUNK_MIN="${3:-5}"
+POSTFILTER="${4:-atadenoise=s=5}"
 
 HALF_W=720
 HALF_H=540
@@ -28,6 +36,7 @@ echo "Output:   $OUTPUT"
 echo "Model:    RealESRGAN-$MODEL (2x, live-action, ncnn-vulkan)"
 echo "Pipeline: ${HALF_W}x${HALF_H} → 2x → $((HALF_W * SCALE))x$((HALF_H * SCALE))"
 echo "Chunk:    ${CHUNK_MIN} minutes"
+echo "Postfilter: ${POSTFILTER}"
 echo ""
 
 FPS=$(ffprobe -v error -select_streams v:0 -show_entries stream=r_frame_rate \
@@ -98,9 +107,15 @@ while [ "$START" -lt "$DURATION" ]; do
         exit 1
     fi
 
+    POSTFILTER_ARGS=()
+    if [[ "$POSTFILTER" != "none" ]]; then
+        POSTFILTER_ARGS=(-vf "$POSTFILTER")
+    fi
+
     ffmpeg -y \
         -framerate "$CHUNK_FPS" \
         -i "$WORK_DIR/upscaled/frame_%08d.png" \
+        "${POSTFILTER_ARGS[@]}" \
         -c:v libx265 -crf 18 -preset medium -pix_fmt yuv420p \
         "$SEGMENT" 2>&1 | grep -E "frame=.*fps=" | tail -1
 
