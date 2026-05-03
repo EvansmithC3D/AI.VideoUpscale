@@ -96,7 +96,7 @@ while [ "$START" -lt "$DURATION" ]; do
         -n "$MODEL" \
         -m "$MODEL_PATH" \
         -s 2 \
-        -t 0 \
+        -t 1024 \
         -g 0 -j 2:4:4 \
         -f png 2>&1 | grep -v "^$" | tail -3
 
