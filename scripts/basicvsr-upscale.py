@@ -28,6 +28,7 @@ Usage (default 270p mode, 16:9):
 import argparse
 import glob
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -46,16 +47,52 @@ def ts(msg):
           file=sys.stderr, flush=True)
 
 
-def extract_frames(input_mkv, start, duration, in_w, in_h, frames_dir, denoise='none'):
-    """Extract IVTC'd, scaled frames for one chunk. Returns frame count.
-    Preprocessing mirrors egvsr-upscale.py: combmatch=sc (safe on MPEG-2),
-    deint=all, spp DCT-aware block cleanup, optional hqdn3d."""
-    vf = [
-        'fieldmatch=order=auto:combmatch=sc',
-        'yadif=mode=0:parity=-1:deint=all',
-        'decimate',
-        'spp=quality=4',
+def detect_telecine(input_mkv):
+    """Probe the source for 3:2 pulldown. True telecine repeats one field
+    roughly once every five frames; progressive and true-interlaced sources
+    repeat none. fieldmatch+decimate must run ONLY when that cadence is
+    present — `decimate` drops 1 of every 5 frames unconditionally, so on a
+    progressive source it silently destroys 20% of real film frames (and
+    desyncs the result against the untouched audio).
+
+    Samples 120s starting 600s in, past credits/black. Returns False (the
+    safe default — no decimation) if idet produces no usable stats."""
+    cmd = [
+        'ffmpeg', '-nostdin', '-ss', '600', '-t', '120',
+        '-i', input_mkv, '-map', '0:v:0', '-vf', 'idet', '-an',
+        '-f', 'null', '-',
     ]
+    out = subprocess.run(cmd, capture_output=True, text=True).stderr
+    rep = {'Neither': 0, 'Top': 0, 'Bottom': 0}
+    for line in out.splitlines():
+        if 'Repeated Fields:' in line:
+            for key in rep:
+                m = re.search(rf'{key}:\s*(\d+)', line)
+                if m:
+                    rep[key] = int(m.group(1))
+    total = sum(rep.values())
+    if total == 0:
+        return False
+    # 3:2 pulldown repeats ~20% of fields; 5% clears noise/false positives.
+    return (rep['Top'] + rep['Bottom']) / total > 0.05
+
+
+def extract_frames(input_mkv, start, duration, in_w, in_h, frames_dir,
+                   denoise='none', telecined=False):
+    """Extract scaled frames for one chunk. Returns frame count.
+    Preprocessing mirrors egvsr-upscale.py: combmatch=sc (safe on MPEG-2),
+    deint=all, spp DCT-aware block cleanup, optional hqdn3d.
+
+    telecined: when True, fieldmatch+decimate reverse 3:2 pulldown. When False
+               they are skipped — `decimate` on a non-telecined source drops
+               1 of every 5 real frames."""
+    vf = []
+    if telecined:
+        vf.append('fieldmatch=order=auto:combmatch=sc')
+    vf.append('yadif=mode=0:parity=-1:deint=all')
+    if telecined:
+        vf.append('decimate')
+    vf.append('spp=quality=4')
     if denoise == 'spatial':
         vf.append('hqdn3d=2:1.5:0:0')
     elif denoise == 'full':
@@ -209,6 +246,11 @@ def main():
     total_chunks = (args.duration + args.chunk_sec - 1) // args.chunk_sec
     segment_list_path = os.path.join(args.segments_dir, 'segments.txt')
 
+    telecined = detect_telecine(args.input)
+    ts('Telecine: 3:2 pulldown detected — IVTC (fieldmatch+decimate) enabled'
+       if telecined else
+       'Telecine: none — IVTC disabled, no frame decimation (progressive source)')
+
     segments_txt = open(segment_list_path, 'w')
     try:
         for chunk_idx in range(total_chunks):
@@ -226,7 +268,7 @@ def main():
                     frame_count = extract_frames(
                         args.input, start, chunk_dur,
                         args.in_width, args.in_height, frames_dir,
-                        denoise=args.denoise,
+                        denoise=args.denoise, telecined=telecined,
                     )
                 except subprocess.CalledProcessError as e:
                     raise RuntimeError(f'Frame extraction failed: {e}')
@@ -236,7 +278,7 @@ def main():
                     continue
 
                 chunk_fps = frame_count / chunk_dur
-                print(f'  Frames: {frame_count}  FPS (post-IVTC): {chunk_fps:.6f}',
+                print(f'  Frames: {frame_count}  FPS: {chunk_fps:.6f}',
                       file=sys.stderr, flush=True)
 
                 process_chunk(

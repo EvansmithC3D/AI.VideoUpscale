@@ -30,6 +30,27 @@ fi
 
 ts() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*"; }
 
+# Detect 3:2 pulldown and echo the IVTC filter prefix for the extract chain.
+# fieldmatch+decimate must run ONLY on genuinely telecined sources: `decimate`
+# drops 1 of every 5 frames unconditionally, so on progressive video it destroys
+# 20% of real frames and desyncs the output against the untouched audio. idet
+# reports repeated fields — ~20% on true 3:2 pulldown, ~0 on progressive.
+detect_ivtc_chain() {
+    local stats neither top bottom total
+    stats=$(ffmpeg -nostdin -ss 600 -t 120 -i "$1" -map 0:v:0 -vf idet -an \
+        -f null - 2>&1 | grep "Repeated Fields:" | tail -1)
+    neither=$(sed -n 's/.*Neither:[[:space:]]*\([0-9]*\).*/\1/p' <<<"$stats")
+    top=$(sed -n 's/.*Top:[[:space:]]*\([0-9]*\).*/\1/p' <<<"$stats")
+    bottom=$(sed -n 's/.*Bottom:[[:space:]]*\([0-9]*\).*/\1/p' <<<"$stats")
+    total=$(( ${neither:-0} + ${top:-0} + ${bottom:-0} ))
+    if [ "$total" -gt 0 ] && awk -v r=$(( ${top:-0} + ${bottom:-0} )) -v t="$total" \
+            'BEGIN { exit !(r / t > 0.05) }'; then
+        echo "fieldmatch=order=auto:combmatch=full,yadif=mode=0:parity=-1:deint=interlaced,decimate,"
+    else
+        echo "yadif=mode=0:parity=-1:deint=interlaced,"
+    fi
+}
+
 echo "=== Live-Action 4:3 Upscaler: 540p → 1440x1080 ==="
 echo "Input:    $INPUT"
 echo "Output:   $OUTPUT"
@@ -48,6 +69,13 @@ CHUNK_SEC=$((CHUNK_MIN * 60))
 TOTAL_CHUNKS=$(( (DURATION + CHUNK_SEC - 1) / CHUNK_SEC ))
 
 echo "Duration: ${DURATION}s  FPS: $FPS_ROUNDED  Chunks: $TOTAL_CHUNKS"
+
+IVTC_CHAIN=$(detect_ivtc_chain "$INPUT")
+if [[ "$IVTC_CHAIN" == fieldmatch* ]]; then
+    echo "Telecine: 3:2 pulldown detected — IVTC enabled"
+else
+    echo "Telecine: none — IVTC disabled, no frame decimation (progressive source)"
+fi
 echo ""
 
 mkdir -p "$WORK_DIR/frames" "$WORK_DIR/upscaled" "$SEGMENTS_DIR"
@@ -72,9 +100,10 @@ while [ "$START" -lt "$DURATION" ]; do
     rm -rf "$WORK_DIR/frames" "$WORK_DIR/upscaled"
     mkdir -p "$WORK_DIR/frames" "$WORK_DIR/upscaled"
 
-    # Extract frames: IVTC (reverse 3:2 pulldown), then scale to 720x540
+    # Extract frames: IVTC only if the source is telecined (see detect_ivtc_chain),
+    # then deblock/denoise and scale to 720x540
     ffmpeg -y -ss "$START" -t "$CHUNK_SEC" -i "$INPUT" \
-        -vf "fieldmatch=order=auto:combmatch=full,yadif=mode=0:parity=-1:deint=interlaced,decimate,deblock,hqdn3d=4:3:6:4.5,scale=${HALF_W}:${HALF_H}:flags=lanczos" -vsync vfr -q:v 1 \
+        -vf "${IVTC_CHAIN}deblock,hqdn3d=4:3:6:4.5,scale=${HALF_W}:${HALF_H}:flags=lanczos" -vsync vfr -q:v 1 \
         "$WORK_DIR/frames/frame_%08d.png" -an \
         2>&1 | grep -E "^frame=" | tail -1
 
@@ -88,7 +117,7 @@ while [ "$START" -lt "$DURATION" ]; do
     fi
 
     CHUNK_FPS=$(echo "scale=6; $FRAME_COUNT / ($END - $START)" | bc)
-    echo "  FPS (post-IVTC): $CHUNK_FPS"
+    echo "  FPS: $CHUNK_FPS"
 
     realesrgan-ncnn-vulkan \
         -i "$WORK_DIR/frames" \
