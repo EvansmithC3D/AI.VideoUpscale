@@ -1,0 +1,64 @@
+File   : /mnt/jellyfin-movies/12 Years a Slave (2013).mkv
+Time   : 2026-06-14 10:14:13
+Log    : /home/evanna/upscale-12-years-a-slave-2013.log
+---
+  Frame 500/14386
+  Frame 600/14386
+  Frame 700/14386
+  Frame 800/14386
+  Frame 900/14386
+  Frame 1000/14386
+  Frame 1100/14386
+  Frame 1200/14386
+  Frame 1300/14386
+  Frame 1400/14386
+  Frame 1500/14386
+  Frame 1600/14386
+  Frame 1700/14386
+  Frame 1800/14386
+  Frame 1900/14386
+  Frame 2000/14386
+  Frame 2100/14386
+  Frame 2200/14386
+  Frame 2300/14386
+  Frame 2400/14386
+  Frame 2500/14386
+  Frame 2600/14386
+  Frame 2700/14386
+  Frame 2800/14386
+  Frame 2900/14386
+  Frame 3000/14386
+  Frame 3100/14386
+  Frame 3200/14386
+  Frame 3300/14386
+  Frame 3400/14386
+  Frame 3500/14386
+  Frame 3600/14386
+  Frame 3700/14386
+  Frame 3800/14386
+  Frame 3900/14386
+  Frame 4000/14386
+  Frame 4100/14386
+  Frame 4200/14386
+  Frame 4300/14386
+  Frame 4400/14386
+  Frame 4500/14386
+  Frame 4600/14386
+  Frame 4700/14386
+  Frame 4800/14386
+  Frame 4900/14386
+  Frame 5000/14386
+  Frame 5100/14386
+  Frame 5200/14386
+  Frame 5300/14386
+  Frame 5400/14386
+  Frame 5500/14386
+  Frame 5600/14386
+  Frame 5700/14386
+  Frame 5800/14386
+  Frame 5900/14386
+  Frame 6000/14386
+Memory access fault by GPU node-1 (Agent handle: 0x382e9850) on address 0x3b6c9000. Reason: Page not present or supervisor privilege.
+GPU core dump failed
+/home/evanna/AI.VideoUpscale/scripts/upscale-live-16x9-4k.sh: line 73: 55128 Aborted                 (core dumped) HSA_OVERRIDE_GFX_VERSION=10.3.0 python3 "$SCRIPT_DIR/egvsr-upscale.py" --input "$INPUT" --segments-dir "$SEGMENTS_DIR" --in-width "$QUARTER_W" --in-height "$QUARTER_H" --out-width "$OUT_W" --out-height "$OUT_H" --duration "$DURATION" --chunk-sec "$CHUNK_SEC" --denoise "$DENOISE"
+[2026-06-14 10:14:13]   ERROR: EGVSR pipeline failed (exit 134) — segments preserved in /tmp/upscale_segments_55111

@@ -8,7 +8,7 @@ done|live|1080p|/mnt/jellyfin-movies/Challengers (2024).mkv
 done|live|4k|/mnt/jellyfin-movies/Manhunter (1986).mkv
 done|live|4k|/mnt/jellyfin-movies/Amadeus (1984).mkv
 done|live|4k|/mnt/jellyfin-movies/12 Angry Men (1957).mkv
-done|live|4k|/mnt/jellyfin-movies/12 Years a Slave (2013).mkv
+error|live|4k|/mnt/jellyfin-movies/12 Years a Slave (2013).mkv
 done|live|4k|/mnt/jellyfin-movies/2001 A Space Odyssey (1968).mkv
 done|live|4k|/mnt/jellyfin-movies/American Psycho (2000).mkv
 done|live|4k|/mnt/jellyfin-movies/An American Haunting (2005).mkv
@@ -62,7 +62,7 @@ done|live|1080p|/mnt/jellyfin-movies/Terminator 2: Judgment Day (1991).mkv
 # telecine-detection fix; resolution matches each existing [upscaled] file.
 done|live|4k|/mnt/jellyfin-movies/Manhunter (1986).mkv
 done|live|4k|/mnt/jellyfin-movies/12 Angry Men (1957).mkv
-pending|live|4k|/mnt/jellyfin-movies/12 Years a Slave (2013).mkv
+error|live|4k|/mnt/jellyfin-movies/12 Years a Slave (2013).mkv
 pending|live|4k|/mnt/jellyfin-movies/2001 A Space Odyssey (1968).mkv
 pending|live|4k|/mnt/jellyfin-movies/Amadeus (1984).mkv
 pending|live|4k|/mnt/jellyfin-movies/American Psycho (2000).mkv
