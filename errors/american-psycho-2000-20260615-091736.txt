@@ -1,0 +1,64 @@
+File   : /mnt/jellyfin-movies/American Psycho (2000).mkv
+Time   : 2026-06-15 09:17:36
+Log    : /home/evanna/upscale-american-psycho-2000.log
+---
+  Frame 7700/14387
+  Frame 7800/14387
+  Frame 7900/14387
+  Frame 8000/14387
+  Frame 8100/14387
+  Frame 8200/14387
+  Frame 8300/14387
+  Frame 8400/14387
+  Frame 8500/14387
+  Frame 8600/14387
+  Frame 8700/14387
+  Frame 8800/14387
+  Frame 8900/14387
+  Frame 9000/14387
+  Frame 9100/14387
+  Frame 9200/14387
+  Frame 9300/14387
+  Frame 9400/14387
+  Frame 9500/14387
+  Frame 9600/14387
+  Frame 9700/14387
+  Frame 9800/14387
+  Frame 9900/14387
+  Frame 10000/14387
+  Frame 10100/14387
+  Frame 10200/14387
+  Frame 10300/14387
+  Frame 10400/14387
+  Frame 10500/14387
+  Frame 10600/14387
+  Frame 10700/14387
+  Frame 10800/14387
+  Frame 10900/14387
+  Frame 11000/14387
+  Frame 11100/14387
+  Frame 11200/14387
+  Frame 11300/14387
+  Frame 11400/14387
+  Frame 11500/14387
+  Frame 11600/14387
+  Frame 11700/14387
+  Frame 11800/14387
+  Frame 11900/14387
+  Frame 12000/14387
+  Frame 12100/14387
+  Frame 12200/14387
+  Frame 12300/14387
+  Frame 12400/14387
+  Frame 12500/14387
+  Frame 12600/14387
+  Frame 12700/14387
+  Frame 12800/14387
+  Frame 12900/14387
+  Frame 13000/14387
+  Frame 13100/14387
+  Frame 13200/14387
+Memory access fault by GPU node-1 (Agent handle: 0x1cd9ccc0) on address 0x20142000. Reason: Page not present or supervisor privilege.
+GPU core dump failed
+/home/evanna/AI.VideoUpscale/scripts/upscale-live-16x9-4k.sh: line 73: 136384 Aborted                 (core dumped) HSA_OVERRIDE_GFX_VERSION=10.3.0 python3 "$SCRIPT_DIR/egvsr-upscale.py" --input "$INPUT" --segments-dir "$SEGMENTS_DIR" --in-width "$QUARTER_W" --in-height "$QUARTER_H" --out-width "$OUT_W" --out-height "$OUT_H" --duration "$DURATION" --chunk-sec "$CHUNK_SEC" --denoise "$DENOISE"
+[2026-06-15 09:17:35]   ERROR: EGVSR pipeline failed (exit 134) — segments preserved in /tmp/upscale_segments_136367
