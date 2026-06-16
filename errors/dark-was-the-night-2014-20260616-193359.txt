@@ -1,0 +1,64 @@
+File   : /mnt/jellyfin-movies/Dark Was the Night (2014).mkv
+Time   : 2026-06-16 19:33:59
+Log    : /home/evanna/upscale-dark-was-the-night-2014.log
+---
+  Frame 9400/14386
+  Frame 9500/14386
+  Frame 9600/14386
+  Frame 9700/14386
+  Frame 9800/14386
+  Frame 9900/14386
+  Frame 10000/14386
+  Frame 10100/14386
+  Frame 10200/14386
+  Frame 10300/14386
+  Frame 10400/14386
+  Frame 10500/14386
+  Frame 10600/14386
+  Frame 10700/14386
+  Frame 10800/14386
+  Frame 10900/14386
+  Frame 11000/14386
+  Frame 11100/14386
+  Frame 11200/14386
+  Frame 11300/14386
+  Frame 11400/14386
+  Frame 11500/14386
+  Frame 11600/14386
+  Frame 11700/14386
+  Frame 11800/14386
+  Frame 11900/14386
+  Frame 12000/14386
+  Frame 12100/14386
+  Frame 12200/14386
+  Frame 12300/14386
+  Frame 12400/14386
+  Frame 12500/14386
+  Frame 12600/14386
+  Frame 12700/14386
+  Frame 12800/14386
+  Frame 12900/14386
+  Frame 13000/14386
+  Frame 13100/14386
+  Frame 13200/14386
+  Frame 13300/14386
+  Frame 13400/14386
+  Frame 13500/14386
+  Frame 13600/14386
+  Frame 13700/14386
+  Frame 13800/14386
+  Frame 13900/14386
+  Frame 14000/14386
+  Frame 14100/14386
+  Frame 14200/14386
+  Frame 14300/14386
+  Frame 14386/14386
+[2026-06-16 19:33:28]   Chunk 8 done in 2350s @ 23.977 fps — segment saved: segment_0008.mkv  [scene cuts: 23]
+[2026-06-16 19:33:28] [Chunk 9/9] 4800s → 4850s
+  Frames: 1199  FPS: 23.980000
+  Processing 1199 frames with EGVSR (4x → 3840x2160)...
+  Frame 100/1199
+Memory access fault by GPU node-1 (Agent handle: 0x2365f290) on address 0x758947c00000. Reason: Page not present or supervisor privilege.
+GPU core dump failed
+/home/evanna/AI.VideoUpscale/scripts/upscale-live-16x9-4k.sh: line 73: 230141 Aborted                 (core dumped) HSA_OVERRIDE_GFX_VERSION=10.3.0 python3 "$SCRIPT_DIR/egvsr-upscale.py" --input "$INPUT" --segments-dir "$SEGMENTS_DIR" --in-width "$QUARTER_W" --in-height "$QUARTER_H" --out-width "$OUT_W" --out-height "$OUT_H" --duration "$DURATION" --chunk-sec "$CHUNK_SEC" --denoise "$DENOISE"
+[2026-06-16 19:33:59]   ERROR: EGVSR pipeline failed (exit 134) — segments preserved in /tmp/upscale_segments_230124

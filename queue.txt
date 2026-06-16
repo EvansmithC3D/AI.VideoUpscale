@@ -14,7 +14,7 @@ error|live|4k|/mnt/jellyfin-movies/American Psycho (2000).mkv
 done|live|4k|/mnt/jellyfin-movies/An American Haunting (2005).mkv
 done|live|4k|/mnt/jellyfin-movies/Apocalypse Now Redux (2001).mkv
 done|live|4k|/mnt/jellyfin-movies/Catch Me If You Can (2002).mkv
-done|live|4k|/mnt/jellyfin-movies/Dark Was the Night (2014).mkv
+error|live|4k|/mnt/jellyfin-movies/Dark Was the Night (2014).mkv
 done|live|4k|/mnt/jellyfin-movies/Dumb and Dumber (1994).mkv
 done|live|4k|/mnt/jellyfin-movies/Dumb and Dumberer - When Harry Met Lloyd (2003).mkv
 done|live|4k|/mnt/jellyfin-movies/Evan Almighty (2007).mkv
@@ -69,7 +69,7 @@ error|live|4k|/mnt/jellyfin-movies/American Psycho (2000).mkv
 done|live|4k|/mnt/jellyfin-movies/An American Haunting (2005).mkv
 done|live|4k|/mnt/jellyfin-movies/Apocalypse Now Redux (2001).mkv
 done|live|4k|/mnt/jellyfin-movies/Catch Me If You Can (2002).mkv
-pending|live|4k|/mnt/jellyfin-movies/Dark Was the Night (2014).mkv
+error|live|4k|/mnt/jellyfin-movies/Dark Was the Night (2014).mkv
 pending|live|4k|/mnt/jellyfin-movies/Dumb and Dumber (1994).mkv
 pending|live|4k|/mnt/jellyfin-movies/Dumb and Dumberer - When Harry Met Lloyd (2003).mkv
 pending|live|4k|/mnt/jellyfin-movies/Evan Almighty (2007).mkv
