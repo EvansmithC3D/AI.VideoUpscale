@@ -1,0 +1,64 @@
+File   : /mnt/jellyfin-movies/Goodfellas (1990).mkv
+Time   : 2026-06-18 17:13:42
+Log    : /home/evanna/upscale-goodfellas-1990.log
+---
+  Frame 13000/14392
+  Frame 13100/14392
+  Frame 13200/14392
+  Frame 13300/14392
+  Frame 13400/14392
+  Frame 13500/14392
+  Frame 13600/14392
+  Frame 13700/14392
+  Frame 13800/14392
+  Frame 13900/14392
+  Frame 14000/14392
+  Frame 14100/14392
+  Frame 14200/14392
+  Frame 14300/14392
+  Frame 14392/14392
+[2026-06-18 17:05:51]   Chunk 7 done in 1651s @ 23.987 fps — segment saved: segment_0007.mkv  [scene cuts: 19]
+[2026-06-18 17:05:51] [Chunk 8/15] 4200s → 4800s
+  Frames: 14390  FPS: 23.983333
+  Processing 14390 frames with EGVSR (4x → 2880x2160)...
+  Frame 100/14390
+  Frame 200/14390
+  Frame 300/14390
+  Frame 400/14390
+  Frame 500/14390
+  Frame 600/14390
+  Frame 700/14390
+  Frame 800/14390
+  Frame 900/14390
+  Frame 1000/14390
+  Frame 1100/14390
+  Frame 1200/14390
+  Frame 1300/14390
+  Frame 1400/14390
+  Frame 1500/14390
+  Frame 1600/14390
+  Frame 1700/14390
+  Frame 1800/14390
+  Frame 1900/14390
+  Frame 2000/14390
+  Frame 2100/14390
+  Frame 2200/14390
+  Frame 2300/14390
+  Frame 2400/14390
+  Frame 2500/14390
+  Frame 2600/14390
+  Frame 2700/14390
+  Frame 2800/14390
+  Frame 2900/14390
+  Frame 3000/14390
+  Frame 3100/14390
+  Frame 3200/14390
+  Frame 3300/14390
+  Frame 3400/14390
+  Frame 3500/14390
+  Frame 3600/14390
+  Frame 3700/14390
+Memory access fault by GPU node-1 (Agent handle: 0x36dd8ef0) on address 0x390eb000. Reason: Page not present or supervisor privilege.
+GPU core dump failed
+/home/evanna/AI.VideoUpscale/scripts/upscale-live-4x3-4k.sh: line 74: 381531 Aborted                 (core dumped) HSA_OVERRIDE_GFX_VERSION=10.3.0 python3 "$SCRIPT_DIR/egvsr-upscale.py" --input "$INPUT" --segments-dir "$SEGMENTS_DIR" --in-width "$QUARTER_W" --in-height "$QUARTER_H" --out-width "$OUT_W" --out-height "$OUT_H" --duration "$DURATION" --chunk-sec "$CHUNK_SEC" --denoise "$DENOISE"
+[2026-06-18 17:13:42]   ERROR: EGVSR pipeline failed (exit 134) — segments preserved in /tmp/upscale_segments_381514

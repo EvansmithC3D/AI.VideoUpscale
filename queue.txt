@@ -21,7 +21,7 @@ done|live|4k|/mnt/jellyfin-movies/Evan Almighty (2007).mkv
 done|live|4k|/mnt/jellyfin-movies/Everest (2015).mkv
 done|live|4k|/mnt/jellyfin-movies/Freedomland (2006).mkv
 done|live|4k|/mnt/jellyfin-movies/Full Metal Jacket (1987).mkv
-done|live|4k|/mnt/jellyfin-movies/Goodfellas (1990).mkv
+error|live|4k|/mnt/jellyfin-movies/Goodfellas (1990).mkv
 done|live|4k|/mnt/jellyfin-movies/Jeff Dunham's Very Special Christmas Special (2008).mkv
 done|live|4k|/mnt/jellyfin-movies/Men in Black II (2002).mkv
 done|live|4k|/mnt/jellyfin-movies/My Week with Marilyn (2011).mkv
@@ -76,7 +76,7 @@ done|live|4k|/mnt/jellyfin-movies/Evan Almighty (2007).mkv
 done|live|4k|/mnt/jellyfin-movies/Everest (2015).mkv
 done|live|4k|/mnt/jellyfin-movies/Freedomland (2006).mkv
 done|live|4k|/mnt/jellyfin-movies/Full Metal Jacket (1987).mkv
-pending|live|4k|/mnt/jellyfin-movies/Goodfellas (1990).mkv
+error|live|4k|/mnt/jellyfin-movies/Goodfellas (1990).mkv
 pending|live|4k|/mnt/jellyfin-movies/Jeff Dunham's Very Special Christmas Special (2008).mkv
 pending|live|4k|/mnt/jellyfin-movies/Men in Black II (2002).mkv
 pending|live|4k|/mnt/jellyfin-movies/Regarding Henry (1991).mkv
