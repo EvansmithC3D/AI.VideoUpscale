@@ -1,10 +1,17 @@
 #!/bin/bash
 # Upscale a live-action fullscreen (4:3) MKV to 1080p using Real-ESRGAN x2plus (ncnn-vulkan)
 # Pre-scales to 720x540 so 2x output lands exactly at 1440x1080
-# Usage: ./upscale-live-4x3.sh "input.mkv" "output.mkv" [chunk_minutes=5] [postfilter=atadenoise=s=5]
+# Usage: ./upscale-live-4x3.sh "input.mkv" "output.mkv" [chunk_minutes=5] [denoise=none|spatial|full] [postfilter=atadenoise=s=5]
+#
+# denoise: pre-extract grain/noise handling. hqdn3d values mirror egvsr-upscale.py so the
+#   1080p and 4K paths treat the same source identically. Defaults by year parsed from the
+#   filename: pre-2000 → none (preserve grain), 2000+ → spatial.
+#   "none"    — deblock only, no hqdn3d (preserve film grain; best for pre-2000 film)
+#   "spatial" — deblock + hqdn3d=2:1.5:0:0 (per-frame spatial only)
+#   "full"    — deblock + hqdn3d=2:1.5:6:4.5 (spatial + temporal)
 #
 # postfilter: ffmpeg -vf expression applied to upscaled frames before final encode.
-#   "none"                   — skip (original behaviour)
+#   "none"                   — skip
 #   "atadenoise=s=5"         — 5-frame adaptive temporal avg; kills single-image-model flicker (default)
 #   "atadenoise=s=9"         — stronger; risks mild motion blur
 #   "deflicker=mode=am:size=5" — global-brightness deflicker
@@ -13,7 +20,26 @@
 INPUT="$1"
 OUTPUT="$2"
 CHUNK_MIN="${3:-5}"
-POSTFILTER="${4:-atadenoise=s=5}"
+DENOISE="${4:-}"
+POSTFILTER="${5:-atadenoise=s=5}"
+
+# Year-based denoise default if not explicitly set (matches the 4K EGVSR path)
+if [[ -z "$DENOISE" ]]; then
+    YEAR=$(basename "$INPUT" .mkv | grep -oE '\([0-9]{4}\)' | tr -d '()' | tail -1)
+    if [[ -n "$YEAR" && "$YEAR" -lt 2000 ]]; then
+        DENOISE="none"
+    else
+        DENOISE="spatial"
+    fi
+fi
+
+# Map denoise level to an hqdn3d filter segment appended after deblock (empty for 'none').
+case "$DENOISE" in
+    none)    DENOISE_VF="" ;;
+    spatial) DENOISE_VF=",hqdn3d=2:1.5:0:0" ;;
+    full)    DENOISE_VF=",hqdn3d=2:1.5:6:4.5" ;;
+    *)       echo "ERROR: denoise must be none|spatial|full (got '$DENOISE')" >&2; exit 1 ;;
+esac
 
 HALF_W=720
 HALF_H=540
@@ -24,7 +50,7 @@ WORK_DIR="/tmp/upscale_work_$$"
 SEGMENTS_DIR="/tmp/upscale_segments_$$"
 
 if [[ -z "$INPUT" || -z "$OUTPUT" ]]; then
-    echo "Usage: $0 <input.mkv> <output.mkv> [chunk_minutes=5]"
+    echo "Usage: $0 <input.mkv> <output.mkv> [chunk_minutes=5] [denoise=none|spatial|full] [postfilter=atadenoise=s=5]"
     exit 1
 fi
 
@@ -57,6 +83,7 @@ echo "Output:   $OUTPUT"
 echo "Model:    RealESRGAN-$MODEL (2x, live-action, ncnn-vulkan)"
 echo "Pipeline: ${HALF_W}x${HALF_H} → 2x → $((HALF_W * SCALE))x$((HALF_H * SCALE))"
 echo "Chunk:    ${CHUNK_MIN} minutes"
+echo "Denoise:  ${DENOISE}"
 echo "Postfilter: ${POSTFILTER}"
 echo ""
 
@@ -101,9 +128,9 @@ while [ "$START" -lt "$DURATION" ]; do
     mkdir -p "$WORK_DIR/frames" "$WORK_DIR/upscaled"
 
     # Extract frames: IVTC only if the source is telecined (see detect_ivtc_chain),
-    # then deblock/denoise and scale to 720x540
+    # then deblock + year/denoise-gated hqdn3d (see DENOISE_VF) and scale to 720x540
     ffmpeg -y -ss "$START" -t "$CHUNK_SEC" -i "$INPUT" \
-        -vf "${IVTC_CHAIN}deblock,hqdn3d=4:3:6:4.5,scale=${HALF_W}:${HALF_H}:flags=lanczos" -vsync vfr -q:v 1 \
+        -vf "${IVTC_CHAIN}deblock${DENOISE_VF},scale=${HALF_W}:${HALF_H}:flags=lanczos" -vsync vfr -q:v 1 \
         "$WORK_DIR/frames/frame_%08d.png" -an \
         2>&1 | grep -E "^frame=" | tail -1
 

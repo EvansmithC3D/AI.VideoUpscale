@@ -78,11 +78,13 @@ When in doubt about a title, ask the user before starting a long job.
 
 ### What each script does internally
 
-**Live-action 1080p (PyTorch/ROCm):**
-- Model: `RealESRGAN_x2plus.pth` via `scripts/realesrgan-upscale.py`
+**Live-action 1080p (ncnn-vulkan):**
+- Model: `realesrgan-x2plus` (2x) via `realesrgan-ncnn-vulkan` — Vulkan backend, no `HSA_OVERRIDE` needed
 - Live 16:9: 960×540 → 2x → **1920×1080**
 - Live 4:3: 720×540 → 2x → **1440×1080**
 - Chunk size: 5 minutes
+- Pre-extract `deblock` + year-based `denoise` (none/spatial/full; `$4`, same logic as the 4K path), then an `atadenoise` postfilter (`$5`) to suppress single-image-model flicker
+- (The PyTorch `scripts/realesrgan-upscale.py` is legacy/unused — the live 1080p path is ncnn now)
 
 **Live-action 4K (PyTorch/ROCm):**
 - Model: `EGVSR_iter420000.pth` via `scripts/egvsr-upscale.py`
@@ -102,6 +104,10 @@ When in doubt about a title, ask the user before starting a long job.
 - Anime 4:3: 720×540 → 2x → 1440×1080 → 2x → **2880×2160**
 - Chunk size: 2 minutes
 - Creates a video-only intermediate MKV in `/tmp` between passes; audio muxed from source in final step
+
+**Audio/subtitles (all scripts):** the final mux uses `-c:a copy -c:s copy` — original audio and subtitle streams are passed through losslessly with their language tags intact. Nothing is re-encoded.
+
+**Experimental: BasicVSR alternatives (live 1080p only, manual launch).** `scripts/upscale-live-16x9-basicvsr.sh` / `upscale-live-4x3-basicvsr.sh` use bidirectional temporal SR (BasicVSR, PyTorch/ROCm) instead of single-image RealESRGAN, which suppresses per-frame flicker without the `atadenoise` postfilter. They are **not** wired into the queue daemon's script selection — run them by hand. Much slower than the ncnn x2plus path (~3.3 fps at 270p input) and reset temporal state at sub-sequence boundaries. Treat as opt-in for titles where flicker is objectionable.
 
 ---
 

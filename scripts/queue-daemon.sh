@@ -7,11 +7,12 @@
 #   STATUS     : pending, done, error, skip
 #   TYPE       : live, anime
 #   RESOLUTION : 1080p, 4k
-#   DENOISE    : none, spatial, full  (optional; live 4k only — omit to use year-based default)
+#   DENOISE    : none, spatial, full  (optional; any live res — omit to use year-based default)
 #
 # New files are auto-discovered; TYPE is detected automatically (live/anime).
 # Override TYPE, RESOLUTION, or DENOISE in queue.txt before the daemon picks up an entry.
-# DENOISE year-based default: pre-2000 film → none (preserve grain), 2000+ → spatial.
+# DENOISE applies to all live scripts (1080p + 4k); year-based default: pre-2000 film → none
+# (preserve grain), 2000+ → spatial. Anime scripts ignore the DENOISE field.
 #
 # Usage:
 #   nohup bash scripts/queue-daemon.sh >> /home/evanna/upscale-queue.log 2>&1 &
@@ -42,7 +43,7 @@ if [ ! -f "$QUEUE_FILE" ]; then
 # STATUS     : pending, done, error, skip
 # TYPE       : live, anime
 # RESOLUTION : 1080p, 4k
-# DENOISE    : none, spatial, full  (optional; live 4k only; omit for year-based default)
+# DENOISE    : none, spatial, full  (optional; any live res; omit for year-based default)
 EOF
     log "Created queue file: $QUEUE_FILE"
 fi

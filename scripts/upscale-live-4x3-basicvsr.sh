@@ -107,7 +107,7 @@ ffmpeg -y \
     -map 1:a \
     -map 1:s? \
     -c:v copy \
-    -c:a eac3 \
+    -c:a copy \
     -c:s copy \
     -metadata title="$(basename "$INPUT" .mkv) [live 4:3 basicvsr 1440x1080]" \
     "$MUXED_TMP" 2>&1 | grep -E "frame=.*fps=|time=" | tail -1

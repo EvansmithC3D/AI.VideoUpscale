@@ -183,7 +183,7 @@ ffmpeg -y \
     -map 1:a \
     -map 1:s? \
     -c:v copy \
-    -c:a eac3 \
+    -c:a copy \
     -c:s copy \
     -metadata title="$(basename "$INPUT" .mkv) [anime 16:9 upscaled 4K]" \
     "$MUXED_TMP" 2>&1 | grep -E "frame=.*fps=|time=" | tail -1
