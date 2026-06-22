@@ -82,7 +82,7 @@ done|live|4k|/mnt/jellyfin-movies/Men in Black II (2002).mkv
 done|live|4k|/mnt/jellyfin-movies/Regarding Henry (1991).mkv
 done|live|4k|/mnt/jellyfin-movies/Skyfall (2012).mkv
 done|live|4k|/mnt/jellyfin-movies/Star Wars Episode IV - A New Hope (1977).mkv
-pending|live|1080p|/mnt/jellyfin-movies/Skyfall (2012).mkv
+done|live|1080p|/mnt/jellyfin-movies/Skyfall (2012).mkv
 pending|live|1080p|/mnt/jellyfin-movies/Star Wars Episode V - The Empire Strikes Back (1980).mkv
 pending|live|1080p|/mnt/jellyfin-movies/Star Wars Episode VI - Return of the Jedi (1983).mkv
 pending|live|1080p|/mnt/jellyfin-movies/The Deer Hunter (1978).mkv
