@@ -87,7 +87,7 @@ done|live|1080p|/mnt/jellyfin-movies/Star Wars Episode V - The Empire Strikes Ba
 done|live|1080p|/mnt/jellyfin-movies/Star Wars Episode VI - Return of the Jedi (1983).mkv
 done|live|1080p|/mnt/jellyfin-movies/The Deer Hunter (1978).mkv
 done|live|1080p|/mnt/jellyfin-movies/The Forgotten (2004).mkv
-pending|live|1080p|/mnt/jellyfin-movies/The Frozen Ground (2013).mkv
+done|live|1080p|/mnt/jellyfin-movies/The Frozen Ground (2013).mkv
 pending|live|1080p|/mnt/jellyfin-movies/The Hunger Games (2012).mkv
 pending|live|1080p|/mnt/jellyfin-movies/The Prestige (2006).mkv
 pending|live|1080p|/mnt/jellyfin-movies/The Shawshank Redemption (1994).mkv
