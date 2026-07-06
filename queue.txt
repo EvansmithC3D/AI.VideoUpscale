@@ -90,7 +90,7 @@ done|live|1080p|/mnt/jellyfin-movies/The Forgotten (2004).mkv
 done|live|1080p|/mnt/jellyfin-movies/The Frozen Ground (2013).mkv
 done|live|1080p|/mnt/jellyfin-movies/The Hunger Games (2012).mkv
 done|live|1080p|/mnt/jellyfin-movies/The Prestige (2006).mkv
-pending|live|1080p|/mnt/jellyfin-movies/The Shawshank Redemption (1994).mkv
+done|live|1080p|/mnt/jellyfin-movies/The Shawshank Redemption (1994).mkv
 pending|live|1080p|/mnt/jellyfin-movies/The Shining (1980).mkv
 pending|live|1080p|/mnt/jellyfin-movies/The Terminator (1984).mkv
 pending|live|1080p|/mnt/jellyfin-movies/Challengers (2024).mkv
