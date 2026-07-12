@@ -1,7 +1,7 @@
 # AI.VideoUpscale
 
 Chunked video upscaling pipeline for a Jellyfin media server.
-- **Live-action 1080p** — RealESRGAN x2plus (PyTorch/ROCm)
+- **Live-action 1080p** — SPAN 2xNomosUni_span_multijpg (PyTorch/ROCm, fp16)
 - **Live-action 4K** — EGVSR 4x (PyTorch/ROCm), ~7.8fps, ~6–8hr per 2hr film
 - **Anime 1080p/4K** — realesr-animevideov3-x2 (ncnn-vulkan)
 
@@ -15,8 +15,8 @@ Jobs are managed by a queue daemon that reads `queue.txt` and processes one film
 | `upscale-anime-4x3.sh` | Animated | 4:3 | 1440×1080 | animevideov3-x2 | ncnn-vulkan |
 | `upscale-anime-16x9-4k.sh` | Animated | 16:9 | 3840×2160 | animevideov3-x2 ×2 | ncnn-vulkan |
 | `upscale-anime-4x3-4k.sh` | Animated | 4:3 | 2880×2160 | animevideov3-x2 ×2 | ncnn-vulkan |
-| `upscale-live-16x9.sh` | Live-action | 16:9 | 1920×1080 | RealESRGAN-x2plus | ncnn-vulkan |
-| `upscale-live-4x3.sh` | Live-action | 4:3 | 1440×1080 | RealESRGAN-x2plus | ncnn-vulkan |
+| `upscale-live-16x9.sh` | Live-action | 16:9 | 1920×1080 | SPAN 2xNomosUni | PyTorch/ROCm |
+| `upscale-live-4x3.sh` | Live-action | 4:3 | 1440×1080 | SPAN 2xNomosUni | PyTorch/ROCm |
 | `upscale-live-16x9-4k.sh` | Live-action | 16:9 | 3840×2160 | EGVSR | PyTorch/ROCm |
 | `upscale-live-4x3-4k.sh` | Live-action | 4:3 | 2880×2160 | EGVSR | PyTorch/ROCm |
 
@@ -44,6 +44,7 @@ nohup bash scripts/queue-daemon.sh >> /home/evanna/upscale-queue.log 2>&1 &
 
 | Script | Used by |
 |---|---|
+| `scripts/span-upscale.py` | Live 1080p scripts (SPAN 2x, spandrel venv) |
 | `scripts/egvsr-upscale.py` | Live 4K scripts (EGVSR 4x) |
 | `scripts/basicvsr-upscale.py` | Experimental live 1080p (manual launch) |
 

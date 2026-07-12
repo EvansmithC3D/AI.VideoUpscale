@@ -1,5 +1,8 @@
 #!/bin/bash
-# Upscale a live-action fullscreen (4:3) MKV to 1080p using Real-ESRGAN x2plus (ncnn-vulkan)
+# Upscale a live-action fullscreen (4:3) MKV to 1080p using SPAN (PyTorch/ROCm)
+# Model: 2xNomosUni_span_multijpg — trained on real film/photography with JPEG
+# degradations (maps well to MPEG-2 DVD noise); ~15x faster than the old
+# RealESRGAN x2plus path (~19 fps vs ~1.3 fps GPU stage on the RX 6700 XT).
 # Pre-scales to 720x540 so 2x output lands exactly at 1440x1080
 # Usage: ./upscale-live-4x3.sh "input.mkv" "output.mkv" [chunk_minutes=5] [denoise=none|spatial|full] [postfilter=atadenoise=s=5]
 #
@@ -50,8 +53,9 @@ esac
 HALF_W=720
 HALF_H=540
 SCALE=2
-MODEL="realesrgan-x2plus"
-MODEL_PATH="/usr/local/share/realesrgan-models"
+SPAN_MODEL="/usr/local/share/span-models/2xNomosUni_span_multijpg.safetensors"
+SPAN_PY="/home/evanna/.venvs/span-upscale/bin/python3"   # spandrel venv over the system ROCm torch
+SCRIPT_DIR="$(dirname "$(readlink -f "$0")")"
 WORK_DIR="/tmp/upscale_work_$$"
 SEGMENTS_DIR="/tmp/upscale_segments_$$"
 
@@ -101,7 +105,7 @@ detect_ivtc_chain() {
 echo "=== Live-Action 4:3 Upscaler: 540p → 1440x1080 ==="
 echo "Input:    $INPUT"
 echo "Output:   $OUTPUT"
-echo "Model:    RealESRGAN-$MODEL (2x, live-action, ncnn-vulkan)"
+echo "Model:    SPAN 2xNomosUni_span_multijpg (2x, live-action, PyTorch/ROCm fp16)"
 echo "Pipeline: ${HALF_W}x${HALF_H} → 2x → $((HALF_W * SCALE))x$((HALF_H * SCALE))"
 echo "Chunk:    ${CHUNK_MIN} minutes"
 echo "Denoise:  ${DENOISE}"
@@ -266,15 +270,11 @@ while [ "$START" -lt "$DURATION" ]; do
     # partial upscale (fewer frames out than in) from a mid-chunk GPU failure must
     # abort — otherwise a short chunk silently desyncs the whole rest of the film.
     mkdir -p "$WORK_DIR/upscaled_$CHUNK"
-    realesrgan-ncnn-vulkan \
-        -i "$WORK_DIR/frames_$CHUNK" \
-        -o "$WORK_DIR/upscaled_$CHUNK" \
-        -n "$MODEL" \
-        -m "$MODEL_PATH" \
-        -s 2 \
-        -t 1024 \
-        -g 0 -j 2:4:4 \
-        -f png \
+    HSA_OVERRIDE_GFX_VERSION=10.3.0 "$SPAN_PY" "$SCRIPT_DIR/span-upscale.py" \
+        --input "$WORK_DIR/frames_$CHUNK" \
+        --output "$WORK_DIR/upscaled_$CHUNK" \
+        --model "$SPAN_MODEL" \
+        --fp16 \
         > "$WORK_DIR/upscale_$CHUNK.log" 2>&1
     UPSCALE_RC=$?
     grep -v "^$" "$WORK_DIR/upscale_$CHUNK.log" | tail -3
@@ -282,7 +282,7 @@ while [ "$START" -lt "$DURATION" ]; do
     echo "  Upscaled frames: $UPSCALED_COUNT"
     if [ $UPSCALE_RC -ne 0 ] || [ "$UPSCALED_COUNT" -ne "$FRAME_COUNT" ]; then
         finish_encode
-        echo "  ERROR: realesrgan upscale failed for chunk $CHUNK (exit $UPSCALE_RC; upscaled $UPSCALED_COUNT / $FRAME_COUNT frames)"
+        echo "  ERROR: SPAN upscale failed for chunk $CHUNK (exit $UPSCALE_RC; upscaled $UPSCALED_COUNT / $FRAME_COUNT frames)"
         echo "=== segments preserved in $SEGMENTS_DIR ==="
         exit 1
     fi

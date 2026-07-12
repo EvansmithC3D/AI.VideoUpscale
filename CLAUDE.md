@@ -20,6 +20,7 @@ This server runs long-form video upscaling jobs. An agent working in this repo i
 
 | Model | Path |
 |---|---|
+| SPAN 2xNomosUni_span_multijpg (.safetensors) | `/usr/local/share/span-models/` |
 | RealESRGAN x2plus / x4plus (.pth) | `/usr/local/share/realesrgan-pth/` |
 | EGVSR weights (EGVSR_iter420000.pth) | `/usr/local/share/egvsr/` |
 | EGVSR Python codes | `/usr/local/share/egvsr/codes/` |
@@ -33,10 +34,10 @@ This server runs long-form video upscaling jobs. An agent working in this repo i
 **If the user did not specify a resolution (1080p or 4K), ask before proceeding.** Do not assume.
 
 Supported targets:
-- **1080p** — live: ~1.3fps GPU-bound (~35hr/2hr film — measured May 2026 and July 2026; the old ~3.7fps figure was wrong); anime: faster via ncnn
-- **4K** — live: ~7.8fps via EGVSR (~6–8hr/2hr film); anime: two-pass ncnn (~2× slower than 1080p anime)
+- **1080p** — live: ~19fps GPU stage via SPAN (end-to-end bound by the pipelined x265 encode; roughly 3–5hr/2hr film — switched from RealESRGAN x2plus (~1.3fps, ~35hr) July 2026); anime: fast via ncnn
+- **4K** — live: ~5.5fps via EGVSR (~8–9hr/2hr film); anime: two-pass ncnn (~2× slower than 1080p anime)
 
-Note: live-action 4K (EGVSR) is *faster* than live-action 1080p (x2plus) due to EGVSR's efficient architecture.
+Note: EGVSR 4K amplifies MPEG-2 compression artifacts on some sources (GAN hallucination on block noise) — the SPAN 1080p path is both faster and cleaner for this DVD library.
 
 ---
 
@@ -78,8 +79,10 @@ When in doubt about a title, ask the user before starting a long job.
 
 ### What each script does internally
 
-**Live-action 1080p (ncnn-vulkan):**
-- Model: `realesrgan-x2plus` (2x) via `realesrgan-ncnn-vulkan` — Vulkan backend, no `HSA_OVERRIDE` needed
+**Live-action 1080p (SPAN, PyTorch/ROCm):**
+- Model: `2xNomosUni_span_multijpg` (2x SPAN, JPEG-degradation-trained — handles MPEG-2 DVD noise) via `scripts/span-upscale.py`, fp16
+- Runs in the dedicated venv `/home/evanna/.venvs/span-upscale` (spandrel over the system ROCm torch); the shell script sets `HSA_OVERRIDE_GFX_VERSION` automatically
+- Replaced `realesrgan-x2plus` (ncnn) July 2026: ~15x faster GPU stage, fewer edge halos; an ncnn fallback (`2xNomosUni_compact_multijpg_ldl_fp32` in `/usr/local/share/realesrgan-models/`) exists if the PyTorch path breaks
 - Live 16:9: 960×540 → 2x → **1920×1080**
 - Live 4:3: 720×540 → 2x → **1440×1080**
 - Chunk size: 5 minutes
