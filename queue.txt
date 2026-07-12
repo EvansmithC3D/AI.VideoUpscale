@@ -85,7 +85,7 @@ done|live|4k|/mnt/jellyfin-movies/Star Wars Episode IV - A New Hope (1977).mkv
 done|live|1080p|/mnt/jellyfin-movies/Skyfall (2012).mkv
 done|live|1080p|/mnt/jellyfin-movies/Star Wars Episode V - The Empire Strikes Back (1980).mkv
 done|live|1080p|/mnt/jellyfin-movies/Star Wars Episode VI - Return of the Jedi (1983).mkv
-pending|live|1080p|/mnt/jellyfin-movies/The Deer Hunter (1978).mkv
+done|live|1080p|/mnt/jellyfin-movies/The Deer Hunter (1978).mkv
 done|live|1080p|/mnt/jellyfin-movies/The Forgotten (2004).mkv
 done|live|1080p|/mnt/jellyfin-movies/The Frozen Ground (2013).mkv
 done|live|1080p|/mnt/jellyfin-movies/The Hunger Games (2012).mkv
