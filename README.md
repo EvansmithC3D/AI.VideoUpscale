@@ -15,8 +15,8 @@ Jobs are managed by a queue daemon that reads `queue.txt` and processes one film
 | `upscale-anime-4x3.sh` | Animated | 4:3 | 1440×1080 | animevideov3-x2 | ncnn-vulkan |
 | `upscale-anime-16x9-4k.sh` | Animated | 16:9 | 3840×2160 | animevideov3-x2 ×2 | ncnn-vulkan |
 | `upscale-anime-4x3-4k.sh` | Animated | 4:3 | 2880×2160 | animevideov3-x2 ×2 | ncnn-vulkan |
-| `upscale-live-16x9.sh` | Live-action | 16:9 | 1920×1080 | RealESRGAN-x2plus | PyTorch/ROCm |
-| `upscale-live-4x3.sh` | Live-action | 4:3 | 1440×1080 | RealESRGAN-x2plus | PyTorch/ROCm |
+| `upscale-live-16x9.sh` | Live-action | 16:9 | 1920×1080 | RealESRGAN-x2plus | ncnn-vulkan |
+| `upscale-live-4x3.sh` | Live-action | 4:3 | 1440×1080 | RealESRGAN-x2plus | ncnn-vulkan |
 | `upscale-live-16x9-4k.sh` | Live-action | 16:9 | 3840×2160 | EGVSR | PyTorch/ROCm |
 | `upscale-live-4x3-4k.sh` | Live-action | 4:3 | 2880×2160 | EGVSR | PyTorch/ROCm |
 
@@ -44,10 +44,10 @@ nohup bash scripts/queue-daemon.sh >> /home/evanna/upscale-queue.log 2>&1 &
 
 | Script | Used by |
 |---|---|
-| `scripts/realesrgan-upscale.py` | Live 1080p scripts (x2plus or x4plus) |
 | `scripts/egvsr-upscale.py` | Live 4K scripts (EGVSR 4x) |
+| `scripts/basicvsr-upscale.py` | Experimental live 1080p (manual launch) |
 
-Both require `HSA_OVERRIDE_GFX_VERSION=10.3.0` (set by the shell scripts automatically).
+Both require `HSA_OVERRIDE_GFX_VERSION=10.3.0` (set by the shell scripts automatically). These are the PyTorch/ROCm helpers — the live 1080p path itself (`upscale-live-16x9.sh` / `upscale-live-4x3.sh`) uses ncnn-vulkan and needs no such helper.
 
 ## Model paths
 

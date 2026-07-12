@@ -80,7 +80,9 @@ if [ "$PYTHON_EXIT" -ne 0 ]; then
 fi
 
 echo ""
-MUXED_TMP="${OUTPUT%.mkv}.muxed.mkv"
+# Concat to a local /tmp file, not the NFS output dir: writing the concat there
+# then re-reading it for mkvmerge would push the full film over NFS twice.
+MUXED_TMP="/tmp/upscale_muxed_$$.mkv"
 ts "[Final] Concatenating $TOTAL_CHUNKS segments + muxing audio/subtitles..."
 ffmpeg -y \
     -f concat -safe 0 -i "$SEGMENT_LIST" \
@@ -93,12 +95,26 @@ ffmpeg -y \
     -c:s copy \
     -metadata title="$(basename "$INPUT" .mkv) [live 4:3 upscaled 4K]" \
     "$MUXED_TMP" 2>&1 | grep -E "frame=.*fps=|time=" | tail -1
+FFMPEG_EXIT=${PIPESTATUS[0]}
+
+if [ "$FFMPEG_EXIT" -ne 0 ] || [ ! -f "$MUXED_TMP" ]; then
+    echo ""
+    echo "=== ERROR: Final concat failed (exit $FFMPEG_EXIT) — segments preserved in $SEGMENTS_DIR ==="
+    exit 1
+fi
 
 rm -rf "$SEGMENTS_DIR"
 
 ts "[Final] Rebuilding seek index with mkvmerge..."
 mkvmerge --cues 0:all --cues 1:all --cues 2:all --cues 3:all --cues 4:all \
   -o "$OUTPUT" "$MUXED_TMP" 2>&1 | grep -E "Progress: 100%|Warning|Error" | tail -2
+MKVMERGE_EXIT=${PIPESTATUS[0]}
+
+# mkvmerge exit 1 = warnings only (acceptable); >= 2 = hard error.
+if [ "$MKVMERGE_EXIT" -ge 2 ]; then
+    echo "=== ERROR: mkvmerge failed (exit $MKVMERGE_EXIT) — muxed file preserved: $MUXED_TMP ==="
+    exit 1
+fi
 rm -f "$MUXED_TMP"
 
 echo ""

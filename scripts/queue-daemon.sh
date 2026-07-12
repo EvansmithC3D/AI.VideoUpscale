@@ -117,6 +117,9 @@ jpn = any(s.get('tags', {}).get('language', '') in ('jpn', 'ja')
 print('yes' if jpn else 'no')
 " 2>/dev/null)
     if [[ "$has_jpn" == "yes" ]]; then
+        # stdout is captured by $(...) at the call site — the warning MUST go to
+        # stderr or it will corrupt the detected-type return value.
+        log "WARN: type=anime via Japanese-audio heuristic for $input — override TYPE in queue.txt if live-action" >&2
         echo "anime"; return
     fi
 
@@ -230,8 +233,13 @@ update_status() {
     local tmp
     tmp=$(mktemp)
     while IFS= read -r line; do
+        # queue.txt accumulates duplicate lines for the same film across re-upscale
+        # campaigns (old done|... history rows plus new pending|... rows for the same
+        # path), so only ever rewrite a currently-pending line — the daemon never
+        # transitions anything else, and matching on path alone would also corrupt
+        # the historical done/skip/error rows for that film.
         # Match path as 4th field — may be followed by more fields (e.g. |denoise) or end of line
-        if [[ "$line" == *"|${input}|"* || "$line" == *"|${input}" ]]; then
+        if [[ "$line" == "pending|"* ]] && [[ "$line" == *"|${input}|"* || "$line" == *"|${input}" ]]; then
             echo "${new_status}|${line#*|}"
         else
             echo "$line"
@@ -288,9 +296,18 @@ while true; do
     # 1. Discover new files
     scan_new_files
 
-    # 2. Check no upscale job is already running (check the script, not just realesrgan,
-    #    since the GPU is also held between chunks during ffmpeg extract/encode phases)
-    if pgrep -f "upscale-.*\.sh" > /dev/null || pgrep -f realesrgan-ncnn-vulkan > /dev/null || pgrep -f waifu2x-ncnn-vulkan > /dev/null || pgrep -f "realesrgan-upscale.py" > /dev/null; then
+    # 2. Check no upscale job is already running. We check for the wrapper shell scripts
+    #    (via "bash .*upscale-.*\.sh" rather than a bare path match — a `vim`/`less` on such
+    #    a path would otherwise match too and stall the queue forever) as well as every
+    #    inference backend that can hold the GPU, including ones launched by hand outside
+    #    the daemon (egvsr/basicvsr/realesrgan-upscale.py), so we never start a second job
+    #    on a 12GB card.
+    if pgrep -f "bash .*upscale-.*\.sh" > /dev/null \
+        || pgrep -f "realesrgan-ncnn-vulkan" > /dev/null \
+        || pgrep -f "waifu2x-ncnn-vulkan" > /dev/null \
+        || pgrep -f "egvsr-upscale\.py" > /dev/null \
+        || pgrep -f "basicvsr-upscale\.py" > /dev/null \
+        || pgrep -f "realesrgan-upscale\.py" > /dev/null; then
         log "Job already running — waiting..."
         sleep "$SCAN_INTERVAL"
         continue
@@ -355,9 +372,25 @@ while true; do
 
     # 8. Verify output
     if [ $JOB_EXIT -eq 0 ] && [ -f "$OUTPUT_FILE" ]; then
-        update_status "$INPUT_FILE" "done"
-        log "DONE: $INPUT_FILE"
-        git_push_status "queue: done - $(basename "$INPUT_FILE")"
+        # exit 0 + file-exists isn't enough to catch a silently truncated output —
+        # confirm the output's duration matches the input's within a few seconds.
+        INPUT_DURATION=$(ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "$INPUT_FILE" 2>/dev/null)
+        OUTPUT_DURATION=$(ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "$OUTPUT_FILE" 2>/dev/null)
+        DURATION_DIFF=""
+        if [[ -n "$INPUT_DURATION" && -n "$OUTPUT_DURATION" ]]; then
+            DURATION_DIFF=$(awk "BEGIN { d = $INPUT_DURATION - $OUTPUT_DURATION; print (d < 0 ? -d : d) }")
+        fi
+
+        if [[ -n "$INPUT_DURATION" && -n "$OUTPUT_DURATION" ]] && awk "BEGIN { exit !($DURATION_DIFF <= 3) }"; then
+            update_status "$INPUT_FILE" "done"
+            log "DONE: $INPUT_FILE"
+            git_push_status "queue: done - $(basename "$INPUT_FILE")"
+        else
+            log "ERROR: Duration mismatch for $INPUT_FILE — input=${INPUT_DURATION:-empty}s output=${OUTPUT_DURATION:-empty}s diff=${DURATION_DIFF:-n/a}s"
+            update_status "$INPUT_FILE" "error"
+            commit_error_log "$INPUT_FILE" "$TITLE_LOG"
+            git_push_status "queue: error - $(basename "$INPUT_FILE")"
+        fi
     else
         update_status "$INPUT_FILE" "error"
         log "ERROR: Job failed (exit $JOB_EXIT) for $INPUT_FILE — check $TITLE_LOG"

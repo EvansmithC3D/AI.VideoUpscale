@@ -39,18 +39,27 @@ def ts(msg):
           file=sys.stderr, flush=True)
 
 
-def detect_telecine(input_mkv):
-    """Probe the source for 3:2 pulldown. True telecine repeats one field
-    roughly once every five frames; progressive and true-interlaced sources
-    repeat none. fieldmatch+decimate must run ONLY when that cadence is
-    present — `decimate` drops 1 of every 5 frames unconditionally, so on a
-    progressive source it silently destroys 20% of real film frames (and
-    desyncs the result against the untouched audio).
-
-    Samples 120s starting 600s in, past credits/black. Returns False (the
-    safe default — no decimation) if idet produces no usable stats."""
+def probe_duration(input_mkv):
+    """Return the source's true float duration in seconds via ffprobe, or None
+    on failure. --duration arrives truncated to whole seconds; the real value is
+    needed so the final chunk's fps isn't computed against a short denominator."""
     cmd = [
-        'ffmpeg', '-nostdin', '-ss', '600', '-t', '120',
+        'ffprobe', '-v', 'error', '-show_entries', 'format=duration',
+        '-of', 'default=noprint_wrappers=1:nokey=1', input_mkv,
+    ]
+    try:
+        out = subprocess.run(cmd, capture_output=True, text=True,
+                             check=True).stdout.strip()
+        return float(out)
+    except (subprocess.CalledProcessError, ValueError):
+        return None
+
+
+def _idet_repeated_fields(input_mkv, start, dur):
+    """Run ffmpeg idet on one [start, start+dur] window and return its
+    repeated-field counts {Neither, Top, Bottom} (all 0 if idet emits none)."""
+    cmd = [
+        'ffmpeg', '-nostdin', '-ss', str(start), '-t', str(dur),
         '-i', input_mkv, '-map', '0:v:0', '-vf', 'idet', '-an',
         '-f', 'null', '-',
     ]
@@ -62,11 +71,43 @@ def detect_telecine(input_mkv):
                 m = re.search(rf'{key}:\s*(\d+)', line)
                 if m:
                     rep[key] = int(m.group(1))
-    total = sum(rep.values())
+    return rep
+
+
+def detect_telecine(input_mkv, duration):
+    """Probe the source for 3:2 pulldown. True telecine repeats one field
+    roughly once every five frames; progressive and true-interlaced sources
+    repeat none. fieldmatch+decimate must run ONLY when that cadence is
+    present — `decimate` drops 1 of every 5 frames unconditionally, so on a
+    progressive source it silently destroys 20% of real film frames (and
+    desyncs the result against the untouched audio).
+
+    Samples several 120s windows and aggregates idet's repeated-field counts:
+    one window at the start for shorts (< 300s), otherwise three windows at
+    10%/50%/85% of the runtime. A single fixed window gives mixed-cadence discs
+    a wrong global answer and left files shorter than ~12 min with no stats.
+    Returns False (the safe default — no decimation) if idet produces none."""
+    if duration < 300:
+        starts = [0]
+    else:
+        starts = []
+        for frac in (0.10, 0.50, 0.85):
+            start = int(duration * frac)
+            start = min(start, int(duration) - 120)
+            start = max(start, 0)
+            starts.append(start)
+
+    agg = {'Neither': 0, 'Top': 0, 'Bottom': 0}
+    for start in starts:
+        rep = _idet_repeated_fields(input_mkv, start, 120)
+        for key in agg:
+            agg[key] += rep[key]
+
+    total = sum(agg.values())
     if total == 0:
         return False
     # 3:2 pulldown repeats ~20% of fields; 5% clears noise/false positives.
-    return (rep['Top'] + rep['Bottom']) / total > 0.05
+    return (agg['Top'] + agg['Bottom']) / total > 0.05
 
 
 def extract_frames(input_mkv, start, duration, in_w, in_h, frames_dir,
@@ -111,7 +152,9 @@ def extract_frames(input_mkv, start, duration, in_w, in_h, frames_dir,
         '-t', str(duration),
         '-i', input_mkv,
         '-vf', ','.join(vf),
-        '-vsync', 'vfr', '-q:v', '1',
+        # compression_level 1: extraction is serial with the GPU, so minimise
+        # PNG deflate CPU cost (default level burns real time on the critical path).
+        '-vsync', 'vfr', '-q:v', '1', '-compression_level', '1',
         os.path.join(frames_dir, 'frame_%08d.png'),
         '-an',
     ]
@@ -147,7 +190,8 @@ def process_chunk(frames_dir, chunk_fps, out_w, out_h, segment_path,
         '-framerate', str(chunk_fps),
         '-i', 'pipe:0',
         '-vf', 'format=nv12,hwupload',
-        '-c:v', 'hevc_vaapi', '-qp', '20', '-g', '48',
+        # AMD VCN HEVC is markedly less efficient than libx265; qp18 claws back quality for archival output.
+        '-c:v', 'hevc_vaapi', '-qp', '18', '-g', '48',
         segment_path,
     ], stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
@@ -258,7 +302,11 @@ def main():
     total_chunks = (args.duration + args.chunk_sec - 1) // args.chunk_sec
     segment_list_path = os.path.join(args.segments_dir, 'segments.txt')
 
-    telecined = detect_telecine(args.input)
+    # --duration is truncated to whole seconds; probe the true float duration so
+    # the final chunk's fps uses the real tail length (see chunk loop below).
+    duration_f = probe_duration(args.input) or float(args.duration)
+
+    telecined = detect_telecine(args.input, duration_f)
     ts('Telecine: 3:2 pulldown detected — IVTC (fieldmatch+decimate) enabled'
        if telecined else
        'Telecine: none — IVTC disabled, no frame decimation (progressive source)')
@@ -293,7 +341,16 @@ def main():
                     ts('  No frames extracted, skipping.')
                     continue
 
-                chunk_fps = frame_count / chunk_dur
+                # The last chunk extracts to true EOF, but chunk_dur is bounded by
+                # the truncated integer --duration; dividing by it overstates the
+                # tail fps (tail plays fast → A/V drift). Use the true remaining span.
+                if chunk_idx == total_chunks - 1:
+                    span = duration_f - start
+                else:
+                    span = chunk_dur
+                if span <= 0:
+                    span = chunk_dur
+                chunk_fps = frame_count / span
                 print(f'  Frames: {frame_count}  FPS: {chunk_fps:.6f}',
                       file=sys.stderr, flush=True)
 

@@ -33,7 +33,7 @@ This server runs long-form video upscaling jobs. An agent working in this repo i
 **If the user did not specify a resolution (1080p or 4K), ask before proceeding.** Do not assume.
 
 Supported targets:
-- **1080p** — live: ~3.7fps (~16hr/2hr film); anime: faster via ncnn
+- **1080p** — live: ~1.3fps GPU-bound (~35hr/2hr film — measured May 2026 and July 2026; the old ~3.7fps figure was wrong); anime: faster via ncnn
 - **4K** — live: ~7.8fps via EGVSR (~6–8hr/2hr film); anime: two-pass ncnn (~2× slower than 1080p anime)
 
 Note: live-action 4K (EGVSR) is *faster* than live-action 1080p (x2plus) due to EGVSR's efficient architecture.
@@ -83,8 +83,9 @@ When in doubt about a title, ask the user before starting a long job.
 - Live 16:9: 960×540 → 2x → **1920×1080**
 - Live 4:3: 720×540 → 2x → **1440×1080**
 - Chunk size: 5 minutes
-- Pre-extract `deblock` + year-based `denoise` (none/spatial/full; `$4`, same logic as the 4K path), then an `atadenoise` postfilter (`$5`) to suppress single-image-model flicker
-- (The PyTorch `scripts/realesrgan-upscale.py` is legacy/unused — the live 1080p path is ncnn now)
+- Pre-extract `spp=quality=4` (DCT-aware deblock) + year-based `denoise` (none/spatial/full; `$4`, same logic as the 4K path), then an `atadenoise` postfilter (`$5`) to suppress single-image-model flicker
+- Extract of chunk N+1 and encode of chunk N-1 run in the background while the GPU upscales chunk N (pipelined — this is why `/tmp` needs headroom for up to two chunks in flight, see disk space note below)
+- (The PyTorch `scripts/realesrgan-upscale.py` is legacy/unused — the live 1080p path is ncnn now — and now lives in `scripts/archive/`)
 
 **Live-action 4K (PyTorch/ROCm):**
 - Model: `EGVSR_iter420000.pth` via `scripts/egvsr-upscale.py`
@@ -174,7 +175,8 @@ df -h /tmp /mnt/jellyfin-movies
 ```
 
 **Minimum free space in `/tmp` before starting:**
-- 1080p jobs: at least 5 GB (5-min chunks at 960×540)
+- live 1080p jobs: at least 60 GB (pipelined: up to two chunks of input+output PNGs in flight)
+- anime 1080p jobs: at least 35 GB
 - 4K jobs: at least 25 GB (2-min chunks; 4K output frames are much larger)
 
 ---
@@ -221,7 +223,7 @@ Find where it stopped:
 grep "Chunk.*done in" /home/evanna/upscale-title.log | tail -5
 ```
 
-To resume, write a targeted resume script modelled on `scripts/upscale-resume.sh`. Key values to extract:
+To resume, write a targeted resume script modelled on `scripts/archive/upscale-resume.sh`. Key values to extract:
 - `SEGMENTS_DIR` (the `/tmp/upscale_segments_<PID>` path — must still exist)
 - Last completed chunk number and its end timestamp
 - `FPS_ROUNDED` and `DURATION` (printed near the top of the log)

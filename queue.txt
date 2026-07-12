@@ -3,7 +3,7 @@
 # STATUS     : pending, done, error, skip
 # TYPE       : live, anime
 # RESOLUTION : 1080p, 4k
-# DENOISE    : none, spatial, full  (optional; live 4k only; omit for year-based default)
+# DENOISE    : none, spatial, full  (optional; any live res; omit for year-based default)
 done|live|1080p|/mnt/jellyfin-movies/Challengers (2024).mkv
 done|live|4k|/mnt/jellyfin-movies/Manhunter (1986).mkv
 done|live|4k|/mnt/jellyfin-movies/Amadeus (1984).mkv
