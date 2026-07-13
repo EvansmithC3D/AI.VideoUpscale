@@ -96,7 +96,7 @@ done|live|1080p|/mnt/jellyfin-movies/The Terminator (1984).mkv
 done|live|1080p|/mnt/jellyfin-movies/Challengers (2024).mkv
 done|live|1080p|/mnt/jellyfin-movies/Das Boot (1981).mkv
 done|live|1080p|/mnt/jellyfin-movies/Magnolia (1999).mkv
-pending|live|1080p|/mnt/jellyfin-movies/Scarface (1983).mkv
+done|live|1080p|/mnt/jellyfin-movies/Scarface (1983).mkv
 pending|live|1080p|/mnt/jellyfin-movies/Star Wars Episode III Revenge of the Sith (2005).mkv
 pending|live|1080p|/mnt/jellyfin-movies/Synecdoche, New York (2008).mkv
 pending|live|1080p|/mnt/jellyfin-movies/Terminator 2: Judgment Day (1991).mkv
