@@ -1,0 +1,64 @@
+File   : /mnt/jellyfin-movies/12 Years a Slave (2013).mkv
+Time   : 2026-07-14 20:03:24
+Log    : /home/evanna/upscale-12-years-a-slave-2013.log
+---
+[2026-07-14 19:11:51]   Chunk 9 done in 999s — segment saved: segment_0009.mkv
+  FPS: 23.983333
+[2026-07-14 19:11:51] [Chunk 11/27] 3000s → 3300s
+  Frames: 7194
+  Frame 7000/7194  (21.25 fps)
+  Frame 7194/7194  (21.17 fps)
+  Done: 7194 frames in 498.0s (14.45 fps)
+  Upscaled frames: 7194
+[2026-07-14 19:20:21]   Chunk 10 done in 1010s — segment saved: segment_0010.mkv
+  FPS: 23.980000
+[2026-07-14 19:20:21] [Chunk 12/27] 3300s → 3600s
+  Frames: 7195
+  Frame 7000/7195  (21.78 fps)
+  Frame 7195/7195  (21.80 fps)
+  Done: 7195 frames in 451.6s (15.93 fps)
+  Upscaled frames: 7195
+[2026-07-14 19:28:02]   Chunk 11 done in 971s — segment saved: segment_0011.mkv
+  FPS: 23.983333
+[2026-07-14 19:28:02] [Chunk 13/27] 3600s → 3900s
+  Frames: 7193
+  Frame 7000/7193  (21.60 fps)
+  Frame 7193/7193  (21.62 fps)
+  Done: 7193 frames in 467.3s (15.39 fps)
+  Upscaled frames: 7193
+[2026-07-14 19:35:58]   Chunk 12 done in 937s — segment saved: segment_0012.mkv
+  FPS: 23.976666
+[2026-07-14 19:35:58] [Chunk 14/27] 3900s → 4200s
+  Frames: 7194
+  Frame 7000/7194  (21.34 fps)
+  Frame 7194/7194  (21.33 fps)
+  Done: 7194 frames in 494.2s (14.56 fps)
+  Upscaled frames: 7194
+[2026-07-14 19:44:22]   Chunk 13 done in 980s — segment saved: segment_0013.mkv
+  FPS: 23.980000
+[2026-07-14 19:44:22] [Chunk 15/27] 4200s → 4500s
+  Frames: 7193
+  Frame 7000/7193  (21.41 fps)
+  Frame 7193/7193  (21.45 fps)
+  Done: 7193 frames in 471.0s (15.27 fps)
+  Upscaled frames: 7193
+[2026-07-14 19:52:23]   Chunk 14 done in 985s — segment saved: segment_0014.mkv
+  FPS: 23.976666
+[2026-07-14 19:52:23] [Chunk 16/27] 4500s → 4800s
+  Frames: 7194
+  Frame 7000/7194  (21.56 fps)
+  Frame 7194/7194  (21.59 fps)
+  Done: 7194 frames in 461.4s (15.59 fps)
+  Upscaled frames: 7194
+[2026-07-14 20:00:14]   Chunk 15 done in 952s — segment saved: segment_0015.mkv
+  FPS: 23.980000
+[2026-07-14 20:00:14] [Chunk 17/27] 4800s → 5100s
+  Frames: 7193
+/home/evanna/AI.VideoUpscale/scripts/upscale-live-16x9.sh: line 314: 328194 Aborted                 (core dumped) HSA_OVERRIDE_GFX_VERSION=10.3.0 "$SPAN_PY" "$SCRIPT_DIR/span-upscale.py" --input "$WORK_DIR/frames_$CHUNK" --output "$WORK_DIR/upscaled_$CHUNK" --model "$SPAN_MODEL" --fp16 > "$WORK_DIR/upscale_$CHUNK.log" 2>&1
+  SPAN 2x (2xNomosUni_span_multijpg.safetensors, fp16): 7193 frames
+Memory access fault by GPU node-1 (Agent handle: 0xa0beba0) on address 0x7a90b3c25000. Reason: Page not present or supervisor privilege.
+GPU core dump failed
+  Upscaled frames: 168
+[2026-07-14 20:03:22]   Chunk 16 done in 659s — segment saved: segment_0016.mkv
+  ERROR: SPAN upscale failed for chunk 17 (exit 134; upscaled 168 / 7193 frames)
+=== segments preserved in /tmp/upscale_segments_317519 ===
