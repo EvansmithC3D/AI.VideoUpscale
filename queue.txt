@@ -74,7 +74,7 @@ done|live|1080p|/mnt/jellyfin-movies/The Godfather (1972).mkv
 # --- Re-upscale: SD-source 4K outputs -> 1080p (all sources are 720x480 DVD; 2026-06-19) ---
 done|live|1080p|/mnt/jellyfin-movies/12 Angry Men (1957).mkv
 pending|live|1080p|/mnt/jellyfin-movies/12 Years a Slave (2013).mkv
-pending|live|1080p|/mnt/jellyfin-movies/2001 A Space Odyssey (1968).mkv
+done|live|1080p|/mnt/jellyfin-movies/2001 A Space Odyssey (1968).mkv
 pending|live|1080p|/mnt/jellyfin-movies/Amadeus (1984).mkv
 pending|live|1080p|/mnt/jellyfin-movies/American Psycho (2000).mkv
 pending|live|1080p|/mnt/jellyfin-movies/An American Haunting (2005).mkv
