@@ -100,7 +100,7 @@ done|live|1080p|/mnt/jellyfin-movies/Scarface (1983).mkv
 done|live|1080p|/mnt/jellyfin-movies/Star Wars Episode III Revenge of the Sith (2005).mkv
 done|live|1080p|/mnt/jellyfin-movies/Synecdoche, New York (2008).mkv
 done|live|1080p|/mnt/jellyfin-movies/Terminator 2: Judgment Day (1991).mkv
-pending|live|1080p|/mnt/jellyfin-movies/Valerian and the City of a Thousand Planets (2017).mkv
+done|live|1080p|/mnt/jellyfin-movies/Valerian and the City of a Thousand Planets (2017).mkv
 done|live|1080p|/mnt/jellyfin-movies/Gladiator (2000).mkv
 pending|live|1080p|/mnt/jellyfin-movies/The Godfather (1972).mkv
 
