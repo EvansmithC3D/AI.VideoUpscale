@@ -51,37 +51,13 @@ done|live|1080p|/mnt/jellyfin-movies/Magnolia (1999).mkv
 done|live|1080p|/mnt/jellyfin-movies/Synecdoche, New York (2008).mkv
 done|live|4k|/mnt/jellyfin-movies/Magnolia (1999).mkv
 done|live|1080p|/mnt/jellyfin-movies/Star Wars Episode III Revenge of the Sith (2005).mkv
-
 done|live|1080p|/mnt/jellyfin-movies/Das Boot (1981).mkv
 done|live|1080p|/mnt/jellyfin-movies/Scarface (1983).mkv
 done|live|1080p|/mnt/jellyfin-movies/Terminator 2: Judgment Day (1991).mkv
-
 # --- Re-upscale: telecine-decimation fix (queued 2026-05-16) ---
 # Every live-action title below was damaged by an unconditional `decimate` filter
 # that dropped 1 of every 5 frames (20% loss -> audio desync). Re-running with the
 # telecine-detection fix; resolution matches each existing [upscaled] file.
-done|live|4k|/mnt/jellyfin-movies/Manhunter (1986).mkv
-done|live|4k|/mnt/jellyfin-movies/12 Angry Men (1957).mkv
-skip|live|4k|/mnt/jellyfin-movies/12 Years a Slave (2013).mkv
-done|live|4k|/mnt/jellyfin-movies/2001 A Space Odyssey (1968).mkv
-done|live|4k|/mnt/jellyfin-movies/Amadeus (1984).mkv
-skip|live|4k|/mnt/jellyfin-movies/American Psycho (2000).mkv
-done|live|4k|/mnt/jellyfin-movies/An American Haunting (2005).mkv
-done|live|4k|/mnt/jellyfin-movies/Apocalypse Now Redux (2001).mkv
-done|live|4k|/mnt/jellyfin-movies/Catch Me If You Can (2002).mkv
-skip|live|4k|/mnt/jellyfin-movies/Dark Was the Night (2014).mkv
-done|live|4k|/mnt/jellyfin-movies/Dumb and Dumber (1994).mkv
-done|live|4k|/mnt/jellyfin-movies/Dumb and Dumberer - When Harry Met Lloyd (2003).mkv
-done|live|4k|/mnt/jellyfin-movies/Evan Almighty (2007).mkv
-done|live|4k|/mnt/jellyfin-movies/Everest (2015).mkv
-done|live|4k|/mnt/jellyfin-movies/Freedomland (2006).mkv
-done|live|4k|/mnt/jellyfin-movies/Full Metal Jacket (1987).mkv
-skip|live|4k|/mnt/jellyfin-movies/Goodfellas (1990).mkv
-done|live|4k|/mnt/jellyfin-movies/Jeff Dunham's Very Special Christmas Special (2008).mkv
-done|live|4k|/mnt/jellyfin-movies/Men in Black II (2002).mkv
-done|live|4k|/mnt/jellyfin-movies/Regarding Henry (1991).mkv
-done|live|4k|/mnt/jellyfin-movies/Skyfall (2012).mkv
-done|live|4k|/mnt/jellyfin-movies/Star Wars Episode IV - A New Hope (1977).mkv
 done|live|1080p|/mnt/jellyfin-movies/Skyfall (2012).mkv
 done|live|1080p|/mnt/jellyfin-movies/Star Wars Episode V - The Empire Strikes Back (1980).mkv
 done|live|1080p|/mnt/jellyfin-movies/Star Wars Episode VI - Return of the Jedi (1983).mkv
@@ -93,20 +69,11 @@ done|live|1080p|/mnt/jellyfin-movies/The Prestige (2006).mkv
 done|live|1080p|/mnt/jellyfin-movies/The Shawshank Redemption (1994).mkv
 done|live|1080p|/mnt/jellyfin-movies/The Shining (1980).mkv
 done|live|1080p|/mnt/jellyfin-movies/The Terminator (1984).mkv
-done|live|1080p|/mnt/jellyfin-movies/Challengers (2024).mkv
-done|live|1080p|/mnt/jellyfin-movies/Das Boot (1981).mkv
-done|live|1080p|/mnt/jellyfin-movies/Magnolia (1999).mkv
-done|live|1080p|/mnt/jellyfin-movies/Scarface (1983).mkv
-done|live|1080p|/mnt/jellyfin-movies/Star Wars Episode III Revenge of the Sith (2005).mkv
-done|live|1080p|/mnt/jellyfin-movies/Synecdoche, New York (2008).mkv
-done|live|1080p|/mnt/jellyfin-movies/Terminator 2: Judgment Day (1991).mkv
-done|live|1080p|/mnt/jellyfin-movies/Valerian and the City of a Thousand Planets (2017).mkv
 done|live|1080p|/mnt/jellyfin-movies/Gladiator (2000).mkv
 done|live|1080p|/mnt/jellyfin-movies/The Godfather (1972).mkv
-
 # --- Re-upscale: SD-source 4K outputs -> 1080p (all sources are 720x480 DVD; 2026-06-19) ---
 done|live|1080p|/mnt/jellyfin-movies/12 Angry Men (1957).mkv
-error|live|1080p|/mnt/jellyfin-movies/12 Years a Slave (2013).mkv
+pending|live|1080p|/mnt/jellyfin-movies/12 Years a Slave (2013).mkv
 pending|live|1080p|/mnt/jellyfin-movies/2001 A Space Odyssey (1968).mkv
 pending|live|1080p|/mnt/jellyfin-movies/Amadeus (1984).mkv
 pending|live|1080p|/mnt/jellyfin-movies/American Psycho (2000).mkv
@@ -126,3 +93,5 @@ pending|live|1080p|/mnt/jellyfin-movies/Manhunter (1986).mkv
 pending|live|1080p|/mnt/jellyfin-movies/Men in Black II (2002).mkv
 pending|live|1080p|/mnt/jellyfin-movies/My Week with Marilyn (2011).mkv
 pending|live|1080p|/mnt/jellyfin-movies/Regarding Henry (1991).mkv
+pending|live|1080p|/mnt/jellyfin-movies/Star Wars Episode IV - A New Hope (1977).mkv
+pending|anime|1080p|/mnt/jellyfin-movies/Pokemon The First Movie (1998).mkv
