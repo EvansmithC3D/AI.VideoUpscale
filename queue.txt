@@ -102,7 +102,7 @@ done|live|1080p|/mnt/jellyfin-movies/Synecdoche, New York (2008).mkv
 done|live|1080p|/mnt/jellyfin-movies/Terminator 2: Judgment Day (1991).mkv
 done|live|1080p|/mnt/jellyfin-movies/Valerian and the City of a Thousand Planets (2017).mkv
 done|live|1080p|/mnt/jellyfin-movies/Gladiator (2000).mkv
-pending|live|1080p|/mnt/jellyfin-movies/The Godfather (1972).mkv
+done|live|1080p|/mnt/jellyfin-movies/The Godfather (1972).mkv
 
 # --- Re-upscale: SD-source 4K outputs -> 1080p (all sources are 720x480 DVD; 2026-06-19) ---
 pending|live|1080p|/mnt/jellyfin-movies/12 Angry Men (1957).mkv
