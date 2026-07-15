@@ -78,7 +78,7 @@ done|live|1080p|/mnt/jellyfin-movies/2001 A Space Odyssey (1968).mkv
 done|live|1080p|/mnt/jellyfin-movies/Amadeus (1984).mkv
 done|live|1080p|/mnt/jellyfin-movies/American Psycho (2000).mkv
 done|live|1080p|/mnt/jellyfin-movies/An American Haunting (2005).mkv
-pending|live|1080p|/mnt/jellyfin-movies/Apocalypse Now Redux (2001).mkv
+done|live|1080p|/mnt/jellyfin-movies/Apocalypse Now Redux (2001).mkv
 pending|live|1080p|/mnt/jellyfin-movies/Catch Me If You Can (2002).mkv
 pending|live|1080p|/mnt/jellyfin-movies/Dark Was the Night (2014).mkv
 pending|live|1080p|/mnt/jellyfin-movies/Dumb and Dumber (1994).mkv
