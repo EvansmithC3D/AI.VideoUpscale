@@ -86,7 +86,7 @@ done|live|1080p|/mnt/jellyfin-movies/Dumb and Dumberer - When Harry Met Lloyd (2
 done|live|1080p|/mnt/jellyfin-movies/Evan Almighty (2007).mkv
 done|live|1080p|/mnt/jellyfin-movies/Everest (2015).mkv
 done|live|1080p|/mnt/jellyfin-movies/Freedomland (2006).mkv
-pending|live|1080p|/mnt/jellyfin-movies/Full Metal Jacket (1987).mkv
+done|live|1080p|/mnt/jellyfin-movies/Full Metal Jacket (1987).mkv
 pending|live|1080p|/mnt/jellyfin-movies/Goodfellas (1990).mkv
 pending|live|1080p|/mnt/jellyfin-movies/Jeff Dunham's Very Special Christmas Special (2008).mkv
 pending|live|1080p|/mnt/jellyfin-movies/Manhunter (1986).mkv
