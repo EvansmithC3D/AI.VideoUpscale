@@ -94,4 +94,4 @@ done|live|1080p|/mnt/jellyfin-movies/Men in Black II (2002).mkv
 done|live|1080p|/mnt/jellyfin-movies/My Week with Marilyn (2011).mkv
 done|live|1080p|/mnt/jellyfin-movies/Regarding Henry (1991).mkv
 done|live|1080p|/mnt/jellyfin-movies/Star Wars Episode IV - A New Hope (1977).mkv
-pending|anime|1080p|/mnt/jellyfin-movies/Pokemon The First Movie (1998).mkv
+done|anime|1080p|/mnt/jellyfin-movies/Pokemon The First Movie (1998).mkv
