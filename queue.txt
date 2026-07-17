@@ -91,7 +91,7 @@ done|live|1080p|/mnt/jellyfin-movies/Goodfellas (1990).mkv
 done|live|1080p|/mnt/jellyfin-movies/Jeff Dunham's Very Special Christmas Special (2008).mkv
 error|live|1080p|/mnt/jellyfin-movies/Manhunter (1986).mkv
 done|live|1080p|/mnt/jellyfin-movies/Men in Black II (2002).mkv
-pending|live|1080p|/mnt/jellyfin-movies/My Week with Marilyn (2011).mkv
+done|live|1080p|/mnt/jellyfin-movies/My Week with Marilyn (2011).mkv
 pending|live|1080p|/mnt/jellyfin-movies/Regarding Henry (1991).mkv
 pending|live|1080p|/mnt/jellyfin-movies/Star Wars Episode IV - A New Hope (1977).mkv
 pending|anime|1080p|/mnt/jellyfin-movies/Pokemon The First Movie (1998).mkv
