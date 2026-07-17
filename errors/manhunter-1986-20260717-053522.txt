@@ -1,0 +1,64 @@
+File   : /mnt/jellyfin-movies/Manhunter (1986).mkv
+Time   : 2026-07-17 05:35:22
+Log    : /home/evanna/upscale-manhunter-1986.log
+---
+[2026-07-17 04:46:37]   Chunk 15 done in 937s — segment saved: segment_0015.mkv
+  FPS: 24.000000
+[2026-07-17 04:46:37] [Chunk 17/25] 4800s → 5100s
+  Frames: 7184
+  Frame 7000/7184  (21.48 fps)
+  Frame 7184/7184  (21.51 fps)
+  Done: 7184 frames in 441.9s (16.26 fps)
+  Upscaled frames: 7184
+[2026-07-17 04:54:14]   Chunk 16 done in 921s — segment saved: segment_0016.mkv
+  FPS: 23.946666
+[2026-07-17 04:54:14] [Chunk 18/25] 5100s → 5400s
+  Frames: 7094
+  Frame 7000/7094  (21.60 fps)
+  Frame 7094/7094  (21.62 fps)
+  Done: 7094 frames in 437.2s (16.22 fps)
+  Upscaled frames: 7094
+[2026-07-17 05:01:41]   Chunk 17 done in 904s — segment saved: segment_0017.mkv
+  FPS: 23.646666
+[2026-07-17 05:01:41] [Chunk 19/25] 5400s → 5700s
+  Frames: 7188
+  Frame 7000/7188  (21.92 fps)
+  Frame 7188/7188  (21.95 fps)
+  Done: 7188 frames in 402.4s (17.86 fps)
+  Upscaled frames: 7188
+[2026-07-17 05:08:33]   Chunk 18 done in 859s — segment saved: segment_0018.mkv
+  FPS: 23.960000
+[2026-07-17 05:08:33] [Chunk 20/25] 5700s → 6000s
+  Frames: 7196
+  Frame 7000/7196  (21.81 fps)
+  Frame 7196/7196  (21.84 fps)
+  Done: 7196 frames in 432.3s (16.65 fps)
+  Upscaled frames: 7196
+[2026-07-17 05:15:55]   Chunk 19 done in 854s — segment saved: segment_0019.mkv
+  FPS: 23.986666
+[2026-07-17 05:15:55] [Chunk 21/25] 6000s → 6300s
+  Frames: 7197
+  Frame 7000/7197  (21.56 fps)
+  Frame 7197/7197  (21.58 fps)
+  Done: 7197 frames in 444.5s (16.19 fps)
+  Upscaled frames: 7197
+[2026-07-17 05:23:29]   Chunk 20 done in 896s — segment saved: segment_0020.mkv
+  FPS: 23.990000
+[2026-07-17 05:23:29] [Chunk 22/25] 6300s → 6600s
+  Frames: 7191
+  Frame 7000/7191  (21.57 fps)
+  Frame 7191/7191  (21.60 fps)
+  Done: 7191 frames in 427.6s (16.82 fps)
+  Upscaled frames: 7191
+[2026-07-17 05:30:48]   Chunk 21 done in 893s — segment saved: segment_0021.mkv
+  FPS: 23.970000
+[2026-07-17 05:30:48] [Chunk 23/25] 6600s → 6900s
+  Frames: 7185
+/home/evanna/AI.VideoUpscale/scripts/upscale-live-16x9.sh: line 314: 621457 Aborted                 (core dumped) HSA_OVERRIDE_GFX_VERSION=10.3.0 "$SPAN_PY" "$SCRIPT_DIR/span-upscale.py" --input "$WORK_DIR/frames_$CHUNK" --output "$WORK_DIR/upscaled_$CHUNK" --model "$SPAN_MODEL" --fp16 > "$WORK_DIR/upscale_$CHUNK.log" 2>&1
+  Frame 1500/7185  (20.75 fps)
+Memory access fault by GPU node-1 (Agent handle: 0x10402bd0) on address 0x11716000. Reason: Page not present or supervisor privilege.
+GPU core dump failed
+  Upscaled frames: 1075
+[2026-07-17 05:35:20]   Chunk 22 done in 711s — segment saved: segment_0022.mkv
+  ERROR: SPAN upscale failed for chunk 23 (exit 134; upscaled 1075 / 7185 frames)
+=== segments preserved in /tmp/upscale_segments_606644 ===
