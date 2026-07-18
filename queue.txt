@@ -97,6 +97,6 @@ done|live|1080p|/mnt/jellyfin-movies/Star Wars Episode IV - A New Hope (1977).mk
 done|anime|1080p|/mnt/jellyfin-movies/Pokemon The First Movie (1998).mkv
 done|live|1080p|/mnt/jellyfin-movies/The Dark Knight (2008).mkv
 done|live|1080p|/mnt/jellyfin-movies/Blade Runner (1982).mkv
-pending|live|1080p|/mnt/jellyfin-movies/Come and See (1985).mkv
+done|live|1080p|/mnt/jellyfin-movies/Come and See (1985).mkv
 pending|live|1080p|/mnt/jellyfin-movies/Gone Girl (2014).mkv
 pending|live|1080p|/mnt/jellyfin-movies/Moneyball (2011).mkv
