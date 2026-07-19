@@ -1,0 +1,64 @@
+File   : /mnt/jellyfin-movies/Se7en (1995).mkv
+Time   : 2026-07-19 08:00:39
+Log    : /home/evanna/upscale-se7en-1995.log
+---
+[2026-07-19 07:15:32]   Chunk 13 done in 864s — segment saved: segment_0013.mkv
+  FPS: 24.003333
+[2026-07-19 07:15:32] [Chunk 15/26] 4200s → 4500s
+  Frames: 7194
+  Frame 7000/7194  (21.59 fps)
+  Frame 7194/7194  (21.62 fps)
+  Done: 7194 frames in 423.6s (16.98 fps)
+  Upscaled frames: 7194
+[2026-07-19 07:22:47]   Chunk 14 done in 876s — segment saved: segment_0014.mkv
+  FPS: 23.980000
+[2026-07-19 07:22:47] [Chunk 16/26] 4500s → 4800s
+  Frames: 7200
+  Frame 7000/7200  (21.23 fps)
+  Frame 7200/7200  (21.27 fps)
+  Done: 7200 frames in 427.7s (16.83 fps)
+  Upscaled frames: 7200
+[2026-07-19 07:30:05]   Chunk 15 done in 873s — segment saved: segment_0015.mkv
+  FPS: 24.000000
+[2026-07-19 07:30:05] [Chunk 17/26] 4800s → 5100s
+  Frames: 7194
+  Frame 7000/7194  (21.69 fps)
+  Frame 7194/7194  (21.73 fps)
+  Done: 7194 frames in 404.2s (17.80 fps)
+  Upscaled frames: 7194
+[2026-07-19 07:36:59]   Chunk 16 done in 852s — segment saved: segment_0016.mkv
+  FPS: 23.980000
+[2026-07-19 07:36:59] [Chunk 18/26] 5100s → 5400s
+  Frames: 7194
+  Frame 7000/7194  (21.91 fps)
+  Frame 7194/7194  (21.94 fps)
+  Done: 7194 frames in 385.3s (18.67 fps)
+  Upscaled frames: 7194
+[2026-07-19 07:43:34]   Chunk 17 done in 809s — segment saved: segment_0017.mkv
+  FPS: 23.980000
+[2026-07-19 07:43:34] [Chunk 19/26] 5400s → 5700s
+  Frames: 7193
+  Frame 7000/7193  (22.06 fps)
+  Frame 7193/7193  (22.08 fps)
+  Done: 7193 frames in 398.8s (18.04 fps)
+  Upscaled frames: 7193
+[2026-07-19 07:50:22]   Chunk 18 done in 803s — segment saved: segment_0018.mkv
+  FPS: 23.976666
+[2026-07-19 07:50:22] [Chunk 20/26] 5700s → 6000s
+  Frames: 7229
+  Frame 7000/7229  (21.69 fps)
+  Frame 7229/7229  (21.71 fps)
+  Done: 7229 frames in 422.5s (17.11 fps)
+  Upscaled frames: 7229
+[2026-07-19 07:57:33]   Chunk 19 done in 839s — segment saved: segment_0019.mkv
+  FPS: 24.096666
+[2026-07-19 07:57:33] [Chunk 21/26] 6000s → 6300s
+  Frames: 7194
+/home/evanna/AI.VideoUpscale/scripts/upscale-live-16x9.sh: line 314: 889532 Aborted                 (core dumped) HSA_OVERRIDE_GFX_VERSION=10.3.0 "$SPAN_PY" "$SCRIPT_DIR/span-upscale.py" --input "$WORK_DIR/frames_$CHUNK" --output "$WORK_DIR/upscaled_$CHUNK" --model "$SPAN_MODEL" --fp16 > "$WORK_DIR/upscale_$CHUNK.log" 2>&1
+  SPAN 2x (2xNomosUni_span_multijpg.safetensors, fp16): 7194 frames
+Memory access fault by GPU node-1 (Agent handle: 0x10b548f0) on address 0x5b438000. Reason: Page not present or supervisor privilege.
+GPU core dump failed
+  Upscaled frames: 264
+[2026-07-19 08:00:37]   Chunk 20 done in 615s — segment saved: segment_0020.mkv
+  ERROR: SPAN upscale failed for chunk 21 (exit 134; upscaled 264 / 7194 frames)
+=== segments preserved in /tmp/upscale_segments_876886 ===
