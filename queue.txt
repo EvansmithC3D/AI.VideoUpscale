@@ -100,6 +100,6 @@ done|live|1080p|/mnt/jellyfin-movies/Blade Runner (1982).mkv
 done|live|1080p|/mnt/jellyfin-movies/Come and See (1985).mkv
 done|live|1080p|/mnt/jellyfin-movies/Gone Girl (2014).mkv
 done|live|1080p|/mnt/jellyfin-movies/Moneyball (2011).mkv
-pending|live|1080p|/mnt/jellyfin-movies/Armageddon (1998).mkv
+done|live|1080p|/mnt/jellyfin-movies/Armageddon (1998).mkv
 pending|live|1080p|/mnt/jellyfin-movies/Casino (1995).mkv
 pending|live|1080p|/mnt/jellyfin-movies/Se7en (1995).mkv
