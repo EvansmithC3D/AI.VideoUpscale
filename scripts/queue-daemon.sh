@@ -1,6 +1,7 @@
 #!/bin/bash
 # Upscale Queue Daemon
-# Continuously scans MEDIA_DIR for unupscaled MKVs and processes them one at a time.
+# Continuously scans MEDIA_DIR (movies, flat) and SHOWS_DIR (TV, recursive:
+# <Show>/Season XX/<episode>.mkv) for unupscaled MKVs and processes them one at a time.
 #
 # Queue file format (one entry per line):
 #   STATUS|TYPE|RESOLUTION|/absolute/path/to/file.mkv[|DENOISE]
@@ -9,7 +10,8 @@
 #   RESOLUTION : 1080p, 4k
 #   DENOISE    : none, spatial, full  (optional; any live res — omit to use year-based default)
 #
-# New files are auto-discovered; TYPE is detected automatically (live/anime).
+# New files are auto-discovered (movies flat, show episodes recursively); TYPE is
+# detected automatically (live/anime — per-series for shows, first episode decides).
 # Override TYPE, RESOLUTION, or DENOISE in queue.txt before the daemon picks up an entry.
 # DENOISE applies to all live scripts (1080p + 4k); year-based default: pre-2000 film → none
 # (preserve grain), 2000+ → spatial. Anime scripts ignore the DENOISE field.
@@ -19,6 +21,7 @@
 
 QUEUE_FILE="$(dirname "$(realpath "$0")")/../queue.txt"
 MEDIA_DIR="/mnt/jellyfin-movies"
+SHOWS_DIR="/mnt/jellyfin-shows"   # NFS mountpoint; empty until mounted, so the scan is a no-op until then
 LOG_DIR="/home/evanna"
 SCRIPTS_DIR="$(dirname "$(realpath "$0")")"
 SCAN_INTERVAL=120   # seconds between idle scans
@@ -27,6 +30,10 @@ SCAN_INTERVAL=120   # seconds between idle scans
 # e.g. export TMDB_API_KEY=your_key_here  (add to ~/.bashrc or ~/.profile)
 # Without it the daemon falls back to MKV tags then Japanese-audio heuristic.
 TMDB_API_KEY="${TMDB_API_KEY:-}"
+
+# Detected type per series folder (key: top-level dir name under SHOWS_DIR) so a
+# season scan doesn't re-probe / re-query TMDB for every episode.
+declare -A SERIES_TYPE_CACHE
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -63,10 +70,14 @@ log_slug() {
 
 # ---------------------------------------------------------------------------
 # Detect content type: "anime" or "live"
+#   $1 = mkv path
+#   $2 = series folder name (TV only — switches the TMDB lookup to /search/tv,
+#        since episode filenames like "Show - S01E05.mkv" don't parse as titles)
 # Priority: MKV genre tag → TMDB API → Japanese audio → default live
 # ---------------------------------------------------------------------------
 detect_type() {
     local input="$1"
+    local series="${2:-}"
 
     # 1. MKV embedded genre tag
     local genre
@@ -81,16 +92,31 @@ print(d.get('format', {}).get('tags', {}).get('genre', '').lower())
     fi
 
     # 2. TMDB lookup (requires TMDB_API_KEY)
-    local filename="${1##*/}"   # basename
-    filename="${filename%.mkv}"
-    if [[ -n "$TMDB_API_KEY" && "$filename" =~ ^(.+)\ \(([0-9]{4})\)$ ]]; then
-        local title="${BASH_REMATCH[1]}" year="${BASH_REMATCH[2]}"
+    # Movies: parse "Title (Year)" from the filename → /search/movie
+    # Shows:  use the series folder name passed as $2   → /search/tv
+    local title="" year="" endpoint="" year_param=""
+    if [[ -n "$series" ]]; then
+        endpoint="tv" year_param="first_air_date_year"
+        if [[ "$series" =~ ^(.+)\ \(([0-9]{4})\)$ ]]; then
+            title="${BASH_REMATCH[1]}" year="${BASH_REMATCH[2]}"
+        else
+            title="$series"
+        fi
+    else
+        local filename="${1##*/}"   # basename
+        filename="${filename%.mkv}"
+        if [[ "$filename" =~ ^(.+)\ \(([0-9]{4})\)$ ]]; then
+            endpoint="movie" year_param="year"
+            title="${BASH_REMATCH[1]}" year="${BASH_REMATCH[2]}"
+        fi
+    fi
+    if [[ -n "$TMDB_API_KEY" && -n "$title" ]]; then
         local encoded_title
         encoded_title=$(python3 -c "import urllib.parse,sys; print(urllib.parse.quote(sys.argv[1]))" "$title" 2>/dev/null)
+        local url="https://api.themoviedb.org/3/search/${endpoint}?api_key=${TMDB_API_KEY}&query=${encoded_title}"
+        [[ -n "$year" ]] && url="${url}&${year_param}=${year}"
         local response
-        response=$(curl -sf --max-time 10 \
-            "https://api.themoviedb.org/3/search/movie?api_key=${TMDB_API_KEY}&query=${encoded_title}&year=${year}" \
-            2>/dev/null)
+        response=$(curl -sf --max-time 10 "$url" 2>/dev/null)
         if [[ -n "$response" ]]; then
             local result
             result=$(echo "$response" | python3 -c "
@@ -279,6 +305,40 @@ scan_new_files() {
         added=$((added + 1))
     done < <(find "$MEDIA_DIR" -maxdepth 1 -name "*.mkv" -print0 | sort -z)
 
+    # TV episodes: SHOWS_DIR is nested (<Show>/Season XX/<episode>.mkv) so recurse.
+    # The mountpoint is an empty dir until the NFS export is mounted — find simply
+    # returns nothing then and the loop is a no-op.
+    while IFS= read -r -d '' mkv; do
+        [[ "$mkv" == *"[upscaled]"* ]] && continue
+
+        if grep -qF "|$mkv" "$QUEUE_FILE" 2>/dev/null; then
+            continue
+        fi
+
+        local sdir sbase supscaled
+        sdir=$(dirname "$mkv")
+        sbase=$(basename "$mkv" .mkv)
+        supscaled="$sdir/$sbase [upscaled].mkv"
+        if [ -f "$supscaled" ]; then
+            continue
+        fi
+
+        # Type is per-series: the first episode decides, the rest hit the cache.
+        local series ep_type
+        series="${mkv#"$SHOWS_DIR"/}"
+        series="${series%%/*}"
+        if [[ -n "${SERIES_TYPE_CACHE[$series]:-}" ]]; then
+            ep_type="${SERIES_TYPE_CACHE[$series]}"
+        else
+            ep_type=$(detect_type "$mkv" "$series")
+            SERIES_TYPE_CACHE[$series]="$ep_type"
+            log "Series type for '$series': $ep_type"
+        fi
+        echo "pending|${ep_type}|1080p|$mkv" >> "$QUEUE_FILE"
+        log "Queued (new episode, type=${ep_type}): $mkv"
+        added=$((added + 1))
+    done < <(find "$SHOWS_DIR" -name "*.mkv" -print0 2>/dev/null | sort -z)
+
     [ "$added" -gt 0 ] && log "Added $added new file(s) to queue."
 }
 
@@ -288,6 +348,7 @@ scan_new_files() {
 log "=== Queue daemon starting ==="
 log "Queue file : $QUEUE_FILE"
 log "Media dir  : $MEDIA_DIR"
+log "Shows dir  : $SHOWS_DIR ($(mountpoint -q "$SHOWS_DIR" && echo mounted || echo "not mounted — episodes picked up once mounted"))"
 
 while true; do
     # 0. Sync with remote — picks up error→pending resets from the remote monitor agent
@@ -306,6 +367,7 @@ while true; do
         || pgrep -f "realesrgan-ncnn-vulkan" > /dev/null \
         || pgrep -f "waifu2x-ncnn-vulkan" > /dev/null \
         || pgrep -f "egvsr-upscale\.py" > /dev/null \
+        || pgrep -f "span-upscale\.py" > /dev/null \
         || pgrep -f "basicvsr-upscale\.py" > /dev/null \
         || pgrep -f "realesrgan-upscale\.py" > /dev/null; then
         log "Job already running — waiting..."

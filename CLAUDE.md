@@ -11,10 +11,13 @@ This server runs long-form video upscaling jobs. An agent working in this repo i
 
 ## Media library
 
-- **Input/output location:** `/mnt/jellyfin-movies/`
-- Output naming convention: append `[upscaled]` before `.mkv`
+- **Movies:** `/mnt/jellyfin-movies/` (flat — `Title (Year).mkv`)
+- **Shows:** `/mnt/jellyfin-shows/` (nested — `Show Name/Season XX/Episode.mkv`; the queue daemon scans it recursively)
+  - fstab entry exists (`nofail`), but as of 2026-07-19 the NFS server (192.168.40.200) does **not** export `/mnt/media/jellyfin/shows`. Once the export is added server-side, run `sudo mount /mnt/jellyfin-shows`; the daemon picks up episodes automatically on its next scan.
+- Output naming convention: append `[upscaled]` before `.mkv`, in the same directory as the source
   - e.g. `Spirited Away (2001).mkv` → `Spirited Away (2001) [upscaled].mkv`
-- Logs go in `/home/evanna/` named after the title, e.g. `upscale-spirited-away.log`
+  - episodes: `…/Season 01/Show - S01E01.mkv` → `…/Season 01/Show - S01E01 [upscaled].mkv`
+- Logs go in `/home/evanna/` named after the title, e.g. `upscale-spirited-away.log` (episodes get one log each, e.g. `upscale-breaking-bad-s01e01-pilot.log`)
 
 ## Installed model paths
 
@@ -34,7 +37,7 @@ This server runs long-form video upscaling jobs. An agent working in this repo i
 **If the user did not specify a resolution (1080p or 4K), ask before proceeding.** Do not assume.
 
 Supported targets:
-- **1080p** — live: ~19fps GPU stage via SPAN (end-to-end bound by the pipelined x265 encode; roughly 3–5hr/2hr film — switched from RealESRGAN x2plus (~1.3fps, ~35hr) July 2026); anime: fast via ncnn
+- **1080p** — live: SPAN in a raw-video pipe, ~25fps end-to-end, CPU-bound on spp + x265 (roughly 2–3hr/2hr film — switched from RealESRGAN x2plus (~1.3fps, ~35hr) July 2026, PNG-free pipe Sept 2026); anime: fast via ncnn
 - **4K** — live: ~5.5fps via EGVSR (~8–9hr/2hr film); anime: two-pass ncnn (~2× slower than 1080p anime)
 
 Note: EGVSR 4K amplifies MPEG-2 compression artifacts on some sources (GAN hallucination on block noise) — the SPAN 1080p path is both faster and cleaner for this DVD library.
@@ -83,12 +86,15 @@ When in doubt about a title, ask the user before starting a long job.
 - Model: `2xNomosUni_span_multijpg` (2x SPAN, JPEG-degradation-trained — handles MPEG-2 DVD noise) via `scripts/span-upscale.py`, fp16
 - Runs in the dedicated venv `/home/evanna/.venvs/span-upscale` (spandrel over the system ROCm torch); the shell script sets `HSA_OVERRIDE_GFX_VERSION` automatically
 - Replaced `realesrgan-x2plus` (ncnn) July 2026: ~15x faster GPU stage, fewer edge halos; an ncnn fallback (`2xNomosUni_compact_multijpg_ldl_fp32` in `/usr/local/share/realesrgan-models/`) exists if the PyTorch path breaks
-- Live 16:9: 960×540 → 2x → **1920×1080**
-- Live 4:3: 720×540 → 2x → **1440×1080**
+- Live 16:9: native 720×480 → 2x → 1440×960 → lanczos → **1920×1080**
+- Live 4:3: native 720×480 → 2x → 1440×960 → lanczos → **1440×1080**
+- SPAN sees the real DVD pixels (no pre-upscale); one lanczos resize afterwards, BT.709 matrix, tagged bt709
 - Chunk size: 5 minutes
 - Pre-extract `spp=quality=4` (DCT-aware deblock) + year-based `denoise` (none/spatial/full; `$4`, same logic as the 4K path), then an `atadenoise` postfilter (`$5`) to suppress single-image-model flicker
-- Extract of chunk N+1 and encode of chunk N-1 run in the background while the GPU upscales chunk N (pipelined — this is why `/tmp` needs headroom for up to two chunks in flight, see disk space note below)
-- (The PyTorch `scripts/realesrgan-upscale.py` is legacy/unused — the live 1080p path is ncnn now — and now lives in `scripts/archive/`)
+- Per chunk, decode → SPAN → x265 run concurrently as one raw-video pipe (`ffmpeg | span-upscale.py | ffmpeg`); no frames touch disk. Each chunk leaves `segment_NNNN.hevc` + `segment_NNNN.pts` in the segments dir
+- **Timestamps are preserved (VFR):** the extract's `showinfo` logs each frame's real pts; the final `mkvmerge --timestamps` applies them (with [1,2,1] smoothing that evens the 3:2 soft-telecine 33/50 ms cadence into 41.7 ms). DVDs mix 23.976 film with 29.97 video sections — the old per-chunk average fps caused stutter and multi-second audio drift on those (Casino, Sept 2026 fix). Chunks are cut with `trim` so they partition the film exactly
+- End-to-end ~25 fps (was ~15 fps with the PNG-based pipeline); CPU-bound (spp + x265 medium on the 3700X)
+- (The PyTorch `scripts/realesrgan-upscale.py` is legacy/unused and lives in `scripts/archive/`)
 
 **Live-action 4K (PyTorch/ROCm):**
 - Model: `EGVSR_iter420000.pth` via `scripts/egvsr-upscale.py`
@@ -141,7 +147,10 @@ Queue format:
 # STATUS|TYPE|RESOLUTION|/absolute/path/to/file.mkv
 pending|live|4k|/mnt/jellyfin-movies/Title (Year).mkv
 pending|anime|1080p|/mnt/jellyfin-movies/Title (Year).mkv
+pending|live|1080p|/mnt/jellyfin-shows/Show Name/Season 01/Show - S01E01.mkv
 ```
+
+The daemon auto-discovers new files on every scan: movies from `/mnt/jellyfin-movies/` (top level only) and show episodes from `/mnt/jellyfin-shows/` (recursive), queued as `pending|<detected type>|1080p`. Show type detection runs once per series (MKV genre tag → TMDB `/search/tv` on the series folder name if `TMDB_API_KEY` is set → Japanese-audio heuristic) and every episode of that series inherits it — override TYPE in `queue.txt` before pickup if it guesses wrong.
 
 ---
 
@@ -178,7 +187,7 @@ df -h /tmp /mnt/jellyfin-movies
 ```
 
 **Minimum free space in `/tmp` before starting:**
-- live 1080p jobs: at least 60 GB (pipelined: up to two chunks of input+output PNGs in flight)
+- live 1080p jobs: at least 15 GB (no frames on disk — only HEVC segments plus the final mux)
 - anime 1080p jobs: at least 35 GB
 - 4K jobs: at least 25 GB (2-min chunks; 4K output frames are much larger)
 
@@ -225,6 +234,8 @@ Find where it stopped:
 ```bash
 grep "Chunk.*done in" /home/evanna/upscale-title.log | tail -5
 ```
+
+**Live 1080p jobs** leave `segment_NNNN.hevc` + `segment_NNNN.pts` pairs and a `segments.txt` (`segment_NNNN <chunk start s>`) in the segments dir; a resume re-runs the missing chunks with the same extract/pipe commands and then the script's `[Final]` join + mkvmerge block. For other scripts:
 
 To resume, write a targeted resume script modelled on `scripts/archive/upscale-resume.sh`. Key values to extract:
 - `SEGMENTS_DIR` (the `/tmp/upscale_segments_<PID>` path — must still exist)

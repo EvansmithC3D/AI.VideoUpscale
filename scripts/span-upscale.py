@@ -1,29 +1,35 @@
 #!/usr/bin/env python3
-"""SPAN 2x upscaler for extracted PNG frames (PyTorch/ROCm via spandrel).
+"""SPAN 2x upscaler as a raw-video pipe stage (PyTorch/ROCm via spandrel).
 
-Drop-in replacement for realesrgan-ncnn-vulkan's directory contract: upscales
-every PNG in --input and writes a same-named PNG to --output. The live 1080p
-shell scripts call this for the GPU stage; extraction/encode stay in the shell.
+Reads packed rgb24 frames of --width x --height from stdin and writes the
+upscaled rgb24 frames (width*scale x height*scale) to stdout, in order, one
+for one. The live 1080p shell scripts sandwich this between an ffmpeg decode
+(stdout -> here) and an ffmpeg x265 encode (here -> stdin), so no frame ever
+touches disk and the three stages run concurrently.
 
 Model: 2xNomosUni_span_multijpg (Phhofm) — SPAN architecture, trained on the
 Nomos universal dataset (real film/photography) with JPEG degradations, which
 maps well onto MPEG-2 DVD block/mosquito noise. ~2.2M params; single-image
 (no temporal state), so the shell's atadenoise postfilter still applies.
 
+stdout carries frame bytes only: the real stdout fd is duplicated for frames
+and fd 1 is pointed at stderr, so any stray print from torch/spandrel lands in
+the log instead of corrupting the video stream.
+
 Runs inside the dedicated venv (spandrel is not installed system-wide):
+    ffmpeg -i in.mkv -f rawvideo -pix_fmt rgb24 - |
     HSA_OVERRIDE_GFX_VERSION=10.3.0 /home/evanna/.venvs/span-upscale/bin/python3 \
-        scripts/span-upscale.py --input /tmp/frames --output /tmp/upscaled
+        scripts/span-upscale.py --width 720 --height 480 --fp16 |
+    ffmpeg -f rawvideo -pix_fmt rgb24 -s 1440x960 -i - ...
 """
 import argparse
-import glob
 import os
 import queue
 import sys
 import threading
 import time
-from concurrent.futures import ThreadPoolExecutor
 
-import cv2
+import numpy as np
 import torch
 
 DEFAULT_MODEL = '/usr/local/share/span-models/2xNomosUni_span_multijpg.safetensors'
@@ -31,12 +37,18 @@ DEFAULT_MODEL = '/usr/local/share/span-models/2xNomosUni_span_multijpg.safetenso
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--input', required=True, help='Directory of source PNG frames')
-    parser.add_argument('--output', required=True, help='Directory for upscaled PNG frames')
+    parser.add_argument('--width', type=int, required=True, help='Input frame width')
+    parser.add_argument('--height', type=int, required=True, help='Input frame height')
     parser.add_argument('--model', default=DEFAULT_MODEL)
     parser.add_argument('--fp16', action='store_true',
                         help='Half-precision inference (2x rate on RDNA2; validate quality first)')
+    parser.add_argument('--count-file',
+                        help='Write the number of frames processed here on clean exit')
     args = parser.parse_args()
+
+    frame_out = os.fdopen(os.dup(1), 'wb', buffering=0)
+    os.dup2(2, 1)
+    frame_in = sys.stdin.buffer
 
     from spandrel import ModelLoader
     desc = ModelLoader().load_from_file(args.model)
@@ -45,74 +57,89 @@ def main():
         model = model.half()
     scale = desc.scale
 
-    frames = sorted(glob.glob(os.path.join(args.input, '*.png')))
-    total = len(frames)
-    if total == 0:
-        print('ERROR: no PNG frames in input directory', file=sys.stderr, flush=True)
-        sys.exit(1)
-
-    os.makedirs(args.output, exist_ok=True)
+    w, h = args.width, args.height
+    in_size = w * h * 3
     print(f'  SPAN {scale}x ({os.path.basename(args.model)}, '
-          f'{"fp16" if args.fp16 else "fp32"}): {total} frames',
+          f'{"fp16" if args.fp16 else "fp32"}): {w}x{h} -> {w * scale}x{h * scale}',
           file=sys.stderr, flush=True)
 
-    # PNG decode/encode dominates over the ~2.2M-param model, so overlap them:
-    # a reader thread prefetches decodes and a small writer pool handles encodes
-    # (cv2 releases the GIL in imread/imwrite) while the main thread runs the GPU.
-    read_q = queue.Queue(maxsize=4)
+    # Pipe reads/writes release the GIL, so a reader and a writer thread keep
+    # the GPU fed while the main thread runs the model.
+    read_q = queue.Queue(maxsize=8)
+    write_q = queue.Queue(maxsize=8)
+    errors = []
 
     def reader():
-        for f in frames:
-            read_q.put((f, cv2.imread(f)))
-        read_q.put(None)
+        try:
+            while True:
+                buf = bytearray(in_size)
+                view = memoryview(buf)
+                got = 0
+                while got < in_size:
+                    n = frame_in.readinto(view[got:])
+                    if not n:
+                        break
+                    got += n
+                if got == 0:
+                    break
+                if got < in_size:
+                    errors.append(f'truncated input frame ({got}/{in_size} bytes)')
+                    break
+                read_q.put(buf)
+        finally:
+            read_q.put(None)
 
-    write_errors = []
-
-    def write_frame(path, arr):
-        if not cv2.imwrite(path, arr, [cv2.IMWRITE_PNG_COMPRESSION, 1]):
-            write_errors.append(path)
+    def writer():
+        try:
+            while True:
+                arr = write_q.get()
+                if arr is None:
+                    return
+                frame_out.write(memoryview(arr).cast('B'))
+        except BrokenPipeError:
+            errors.append('downstream encoder closed the pipe')
+            while write_q.get() is not None:
+                pass
 
     threading.Thread(target=reader, daemon=True).start()
+    wthread = threading.Thread(target=writer)
+    wthread.start()
 
     t0 = time.time()
     i = 0
-    with torch.inference_mode(), ThreadPoolExecutor(max_workers=2) as writers:
-        pending = []
+    with torch.inference_mode():
         while True:
-            item = read_q.get()
-            if item is None:
+            buf = read_q.get()
+            if buf is None or errors:
                 break
-            f, img = item
-            if img is None:
-                print(f'ERROR: unreadable frame {f}', file=sys.stderr, flush=True)
-                sys.exit(1)
-            t = torch.from_numpy(img[..., ::-1].copy()).cuda()
-            t = t.permute(2, 0, 1).unsqueeze(0)
+            t = torch.frombuffer(buf, dtype=torch.uint8).cuda()
+            t = t.view(h, w, 3).permute(2, 0, 1).unsqueeze(0)
             t = (t.half() if args.fp16 else t.float()) / 255.0
             out = model(t)
             out = (out.clamp(0, 1) * 255.0).round().byte()
-            out = out.squeeze(0).permute(1, 2, 0).cpu().numpy()[..., ::-1]
-            pending.append(writers.submit(
-                write_frame, os.path.join(args.output, os.path.basename(f)), out))
-            if len(pending) > 8:
-                pending = [p for p in pending if not p.done()]
+            write_q.put(out.squeeze(0).permute(1, 2, 0).contiguous().cpu().numpy())
             i += 1
-            if i % 500 == 0 or i == total:
-                fps = i / (time.time() - t0)
-                print(f'  Frame {i}/{total}  ({fps:.2f} fps)', file=sys.stderr, flush=True)
+            if i % 2000 == 0:
+                print(f'  Frame {i}  ({i / (time.time() - t0):.2f} fps)',
+                      file=sys.stderr, flush=True)
 
-    if write_errors:
-        print(f'ERROR: failed writing {len(write_errors)} frames '
-              f'(first: {write_errors[0]})', file=sys.stderr, flush=True)
+    write_q.put(None)
+    wthread.join()
+    frame_out.close()
+
+    if errors:
+        print(f'ERROR: {errors[0]} after {i} frames', file=sys.stderr, flush=True)
         sys.exit(1)
-    written = len(glob.glob(os.path.join(args.output, '*.png')))
-    if written != total:
-        print(f'ERROR: wrote {written}/{total} frames', file=sys.stderr, flush=True)
+    if i == 0:
+        print('ERROR: no frames on stdin', file=sys.stderr, flush=True)
         sys.exit(1)
 
     elapsed = time.time() - t0
-    print(f'  Done: {total} frames in {elapsed:.1f}s ({total / elapsed:.2f} fps)',
+    print(f'  Done: {i} frames in {elapsed:.1f}s ({i / elapsed:.2f} fps)',
           file=sys.stderr, flush=True)
+    if args.count_file:
+        with open(args.count_file, 'w') as f:
+            f.write(f'{i}\n')
 
 
 if __name__ == '__main__':
