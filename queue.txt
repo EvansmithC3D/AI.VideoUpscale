@@ -106,7 +106,7 @@ done|live|1080p|/mnt/jellyfin-movies/Se7en (1995).mkv
 
 done|live|1080p|/mnt/jellyfin-movies/Casino (1995).mkv
 done|live|1080p|/mnt/jellyfin-movies/The Godfather (1972).mkv
-pending|live|1080p|/mnt/jellyfin-movies/An American Haunting (2005).mkv
+done|live|1080p|/mnt/jellyfin-movies/An American Haunting (2005).mkv
 pending|live|1080p|/mnt/jellyfin-movies/Se7en (1995).mkv
 pending|live|1080p|/mnt/jellyfin-movies/Manhunter (1986).mkv
 pending|live|1080p|/mnt/jellyfin-movies/Apocalypse Now Redux (2001).mkv
