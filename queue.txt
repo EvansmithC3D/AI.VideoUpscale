@@ -113,7 +113,7 @@ done|live|1080p|/mnt/jellyfin-movies/Apocalypse Now Redux (2001).mkv
 done|live|1080p|/mnt/jellyfin-movies/Moneyball (2011).mkv
 done|live|1080p|/mnt/jellyfin-movies/Scarface (1983).mkv
 done|live|1080p|/mnt/jellyfin-movies/Evan Almighty (2007).mkv
-pending|live|1080p|/mnt/jellyfin-movies/The Forgotten (2004).mkv
+done|live|1080p|/mnt/jellyfin-movies/The Forgotten (2004).mkv
 pending|live|1080p|/mnt/jellyfin-movies/Das Boot (1981).mkv
 pending|live|1080p|/mnt/jellyfin-movies/Gladiator (2000).mkv
 pending|live|1080p|/mnt/jellyfin-movies/American Psycho (2000).mkv
