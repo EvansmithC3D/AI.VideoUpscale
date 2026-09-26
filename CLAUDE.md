@@ -37,7 +37,7 @@ This server runs long-form video upscaling jobs. An agent working in this repo i
 **If the user did not specify a resolution (1080p or 4K), ask before proceeding.** Do not assume.
 
 Supported targets:
-- **1080p** — live: SPAN in a raw-video pipe, ~25fps end-to-end, CPU-bound on spp + x265 (roughly 2–3hr/2hr film — switched from RealESRGAN x2plus (~1.3fps, ~35hr) July 2026, PNG-free pipe Sept 2026); anime: fast via ncnn
+- **1080p** — live: SPAN in a raw-video pipe, ~25fps end-to-end, CPU-bound on x265 (roughly 2–3hr/2hr film — switched from RealESRGAN x2plus (~1.3fps, ~35hr) July 2026, PNG-free pipe Sept 2026); anime: fast via ncnn
 - **4K** — live: ~5.5fps via EGVSR (~8–9hr/2hr film); anime: two-pass ncnn (~2× slower than 1080p anime)
 
 Note: EGVSR 4K amplifies MPEG-2 compression artifacts on some sources (GAN hallucination on block noise) — the SPAN 1080p path is both faster and cleaner for this DVD library.
@@ -90,10 +90,9 @@ When in doubt about a title, ask the user before starting a long job.
 - Live 4:3: native 720×480 → 2x → 1440×960 → lanczos → **1440×1080**
 - SPAN sees the real DVD pixels (no pre-upscale); one lanczos resize afterwards, BT.709 matrix, tagged bt709
 - Chunk size: 5 minutes
-- Pre-extract `spp=quality=4` (DCT-aware deblock) + year-based `denoise` (none/spatial/full; `$4`, same logic as the 4K path), then an `atadenoise` postfilter (`$5`) to suppress single-image-model flicker
-- Per chunk, decode → SPAN → x265 run concurrently as one raw-video pipe (`ffmpeg | span-upscale.py | ffmpeg`); no frames touch disk. Each chunk leaves `segment_NNNN.hevc` + `segment_NNNN.pts` in the segments dir
-- **Timestamps are preserved (VFR):** the extract's `showinfo` logs each frame's real pts; the final `mkvmerge --timestamps` applies them (with [1,2,1] smoothing that evens the 3:2 soft-telecine 33/50 ms cadence into 41.7 ms). DVDs mix 23.976 film with 29.97 video sections — the old per-chunk average fps caused stutter and multi-second audio drift on those (Casino, Sept 2026 fix). Chunks are cut with `trim` so they partition the film exactly
-- End-to-end ~25 fps (was ~15 fps with the PNG-based pipeline); CPU-bound (spp + x265 medium on the 3700X)
+- Pre-extract year-based `denoise` (none/spatial/full; `$4`, same logic as the 4K path), then an `atadenoise` postfilter (`$5`) to suppress single-image-model flicker
+- Per chunk, decode → SPAN → x265 run concurrently as one raw-video pipe (`ffmpeg | span-upscale.py | ffmpeg`); no frames touch disk
+- End-to-end ~25 fps (was ~15 fps with the PNG-based pipeline); CPU-bound on x265 medium (3700X)
 - (The PyTorch `scripts/realesrgan-upscale.py` is legacy/unused and lives in `scripts/archive/`)
 
 **Live-action 4K (PyTorch/ROCm):**
@@ -102,6 +101,7 @@ When in doubt about a title, ask the user before starting a long job.
 - Live 16:9: 960×540 → 4x → **3840×2160**
 - Live 4:3: 720×540 → 4x → **2880×2160**
 - Chunk size: 10 minutes
+- Resuming a 4K job cold-starts the recurrent state at the first redone chunk (same as a scene cut)
 
 **Anime 1080p (ncnn-vulkan):**
 - Model: `realesr-animevideov3-x2` (2x, trained on video frames)
@@ -113,9 +113,18 @@ When in doubt about a title, ask the user before starting a long job.
 - Anime 16:9: 960×540 → 2x → 1920×1080 → 2x → **3840×2160**
 - Anime 4:3: 720×540 → 2x → 1440×1080 → 2x → **2880×2160**
 - Chunk size: 2 minutes
-- Creates a video-only intermediate MKV in `/tmp` between passes; audio muxed from source in final step
+- Both 2x passes run back to back on each chunk's frames (no intermediate MKV, no lossy re-encode between passes — rebuilt Sept 2026; the old design re-cut the intermediate by time and could drift)
 
-**Audio/subtitles (all scripts):** the final mux uses `-c:a copy -c:s copy` — original audio and subtitle streams are passed through losslessly with their language tags intact. Nothing is re-encoded.
+**All scripts — timing, resume, deblock (Sept 2026, `scripts/lib/vfr-timing.sh`):**
+- **Real per-frame timestamps (VFR).** The extract logs each frame's pts (`showinfo`, `-fps_mode passthrough`) and the final `mkvmerge --timestamps` stamps them back, with [1,2,1] smoothing that evens the 3:2 soft-telecine 33/50 ms cadence to 41.7 ms (players report 23.976). DVDs mix 23.976 film with 29.97 video sections; the old per-chunk `frames/seconds` fps spread them evenly → stutter and seconds of mid-chunk A/V drift (found on Casino). Chunks are cut with `trim` so they partition the film exactly; the final chunk is uncapped
+- **Automatic resume.** Segments live in `/tmp/upscale_segments_<md5 of input path>` with a settings fingerprint; rerunning the same job (or the daemon retrying it) skips finished chunks. A settings/input change restarts cleanly
+- **No MPEG-2 deblock.** The old `spp=quality=4` was a silent no-op (ffmpeg only gives it QP tables with `-export_side_data venc_params`); tested for real it softened texture with no visible gain on SPAN, so it was removed everywhere
+- **IVTC only on uniform hard telecine.** `fieldmatch+decimate` runs only when idet finds 3:2 repeated fields *and* the packets show no soft-pulldown (33/50 ms) spacing; `decimate` re-times its output as even 23.976 and on mixed discs drops real frames and squeezes the timeline. Mixed discs get `yadif` only (see `docs/future-enhancements.md` item i). No library title has used IVTC as of Sept 2026
+- **Colour:** upscaled output is converted with the BT.709 matrix and tagged bt709 (previously SD BT.601 math, untagged)
+- **Outputs are replaced atomically** (copy to `<output>.part`, then rename)
+- `scripts/scan-timing-drift.py [--chunk S] file.mkv…` replays the old re-timing against a source's packet timestamps and reports the worst drift an old (pre-Sept-2026) upscale of it has
+
+**Audio/subtitles (all scripts):** the final `mkvmerge` takes every audio, subtitle and chapter track from the source untouched (language tags intact). Nothing is re-encoded.
 
 **Experimental: BasicVSR alternatives (live 1080p only, manual launch).** `scripts/upscale-live-16x9-basicvsr.sh` / `upscale-live-4x3-basicvsr.sh` use bidirectional temporal SR (BasicVSR, PyTorch/ROCm) instead of single-image RealESRGAN, which suppresses per-frame flicker without the `atadenoise` postfilter. They are **not** wired into the queue daemon's script selection — run them by hand. Much slower than the ncnn x2plus path (~3.3 fps at 270p input) and reset temporal state at sub-sequence boundaries. Treat as opt-in for titles where flicker is objectionable.
 
@@ -189,7 +198,7 @@ df -h /tmp /mnt/jellyfin-movies
 **Minimum free space in `/tmp` before starting:**
 - live 1080p jobs: at least 15 GB (no frames on disk — only HEVC segments plus the final mux)
 - anime 1080p jobs: at least 35 GB
-- 4K jobs: at least 25 GB (2-min chunks; 4K output frames are much larger)
+- 4K jobs: at least 25 GB for live EGVSR, ~50 GB for anime 4K (one 2-min chunk of 1080p + 4K PNGs)
 
 ---
 
@@ -215,34 +224,18 @@ Expected output resolutions:
 
 ## Handling failures and resuming
 
-If a job dies mid-run, segment files in `/tmp/upscale_segments_<PID>/` may still exist:
+If a job dies mid-run, its finished chunks stay in `/tmp/upscale_segments_<hash>/` (one dir per input file; `segments.txt` lists finished chunks as `segment_NNNN <chunk start s>`, with `segment_NNNN.hevc|.mkv` + `segment_NNNN.pts` each).
 
-```bash
-ls /tmp/upscale_segments_*/
-```
-
-For 4K anime jobs, also check for the intermediate MKV:
-
-```bash
-ls /tmp/upscale_intermediate_*.mkv
-ls /tmp/upscale_p1_segments_*/
-ls /tmp/upscale_p2_segments_*/
-```
+**To resume, just rerun the same job** — same script, same input, same settings (reset its queue line to `pending` and the daemon does this). The script prints `Resuming: N chunk(s) already done` and continues. If the input file or settings changed, it discards the old segments and starts over.
 
 Find where it stopped:
 
 ```bash
 grep "Chunk.*done in" /home/evanna/upscale-title.log | tail -5
+ls /tmp/upscale_segments_*/
 ```
 
-**Live 1080p jobs** leave `segment_NNNN.hevc` + `segment_NNNN.pts` pairs and a `segments.txt` (`segment_NNNN <chunk start s>`) in the segments dir; a resume re-runs the missing chunks with the same extract/pipe commands and then the script's `[Final]` join + mkvmerge block. For other scripts:
-
-To resume, write a targeted resume script modelled on `scripts/archive/upscale-resume.sh`. Key values to extract:
-- `SEGMENTS_DIR` (the `/tmp/upscale_segments_<PID>` path — must still exist)
-- Last completed chunk number and its end timestamp
-- `FPS_ROUNDED` and `DURATION` (printed near the top of the log)
-
-Do **not** delete `/tmp/upscale_segments_*` or `/tmp/upscale_intermediate_*` unless the job completed successfully and the output is verified.
+Do **not** delete `/tmp/upscale_segments_*` unless the job completed successfully and the output is verified (a successful run removes its own).
 
 ---
 
@@ -293,3 +286,10 @@ echo "PID: $!"
 tail -f /home/evanna/upscale-spirited-away.log
 grep "Chunk.*done in" /home/evanna/upscale-spirited-away.log | tail -5
 ```
+
+## Periodic tech re-review
+
+When the user asks for a re-review, a review of new models/efficiency enhancements, or
+"what's new for ROCm", first read `docs/future-enhancements.md`. Work through its
+revisit triggers plus fresh web research, then update that file (last-reviewed date,
+findings, moved/adjusted items) and report back to the user.

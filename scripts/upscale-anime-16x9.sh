@@ -1,7 +1,10 @@
 #!/bin/bash
 # Upscale an animated widescreen (16:9) MKV to 1080p using Real-ESRGAN animevideov3
 # Pre-scales to 960x540 so 2x output lands exactly at 1920x1080
-# Preprocessing: IVTC (3:2 pulldown) or yadif deinterlace + spp MPEG-2 deblock (DVD sources)
+# Preprocessing: IVTC (3:2 pulldown) or yadif deinterlace (DVD sources). (The old spp
+# deblock was a silent no-op — ffmpeg gives it no QP tables — and has been removed.)
+# Timing: every frame keeps its real timestamp (lib/vfr-timing.sh); rerunning the
+# same job resumes after the last finished chunk.
 # Usage: ./upscale-anime-16x9.sh "input.mkv" "output.mkv" [chunk_minutes=5]
 
 INPUT="$1"
@@ -14,7 +17,9 @@ SCALE=2
 MODEL="realesr-animevideov3-x2"
 MODEL_PATH="/usr/local/share/realesrgan-models"
 WORK_DIR="/tmp/upscale_work_$$"
-SEGMENTS_DIR="/tmp/upscale_segments_$$"
+SCRIPT_DIR="$(dirname "$(readlink -f "$0")")"
+. "$SCRIPT_DIR/lib/vfr-timing.sh"
+SEGMENTS_DIR=$(vfr_segments_dir "$INPUT")
 
 if [[ -z "$INPUT" || -z "$OUTPUT" ]]; then
     echo "Usage: $0 <input.mkv> <output.mkv> [chunk_minutes=5]"
@@ -53,6 +58,13 @@ detect_ivtc_chain() {
     local total=$((n_total + t_total + b_total))
     if [ "$total" -gt 0 ] && awk -v r=$((t_total + b_total)) -v t="$total" \
             'BEGIN { exit !(r / t > 0.05) }'; then
+        if vfr_has_soft_pulldown "$input" "$dur"; then
+            # Mixed soft/hard telecine: decimate would drop real frames and
+            # re-time them (see vfr_has_soft_pulldown); deinterlace only.
+            echo "Telecine: repeated fields found, but soft pulldown present — IVTC skipped" >&2
+            echo "yadif=mode=0:parity=-1:deint=all,"
+            return
+        fi
         echo "fieldmatch=order=auto:combmatch=sc,yadif=mode=0:parity=-1:deint=all,decimate,"
     else
         echo "yadif=mode=0:parity=-1:deint=all,"
@@ -86,7 +98,11 @@ else
 fi
 echo ""
 
-mkdir -p "$WORK_DIR/frames" "$WORK_DIR/upscaled" "$SEGMENTS_DIR"
+SRC_START=$(vfr_src_start "$INPUT")
+mkdir -p "$WORK_DIR/frames" "$WORK_DIR/upscaled"
+FINGERPRINT="$(basename "$0")|$(stat -c '%s %Y' "$INPUT")|$CHUNK_SEC|$IVTC_CHAIN|$MODEL|${HALF_W}x${HALF_H}"
+DONE_CHUNKS=$(vfr_resume_init "$SEGMENTS_DIR" "$FINGERPRINT")
+[ "$DONE_CHUNKS" -gt 0 ] && echo "Resuming: $DONE_CHUNKS chunk(s) already done in $SEGMENTS_DIR"
 
 cleanup() { rm -rf "$WORK_DIR"; }
 trap cleanup EXIT
@@ -94,13 +110,20 @@ trap cleanup EXIT
 CHUNK=0
 START=0
 SEGMENT_LIST="$SEGMENTS_DIR/segments.txt"
-> "$SEGMENT_LIST"
 
 while [ "$START" -lt "$DURATION" ]; do
     CHUNK=$((CHUNK + 1))
     END=$((START + CHUNK_SEC))
     [ "$END" -gt "$DURATION" ] && END=$DURATION
-    SEGMENT="$SEGMENTS_DIR/segment_$(printf '%04d' $CHUNK).mkv"
+    # Chunks are cut at CHUNK_SEC; the final chunk runs uncapped to EOF (DURATION is
+    # truncated to whole seconds, so a cap there could drop the last frames).
+    CHUNK_LIMIT=$CHUNK_SEC
+    [ "$END" -ge "$DURATION" ] && CHUNK_LIMIT=$((CHUNK_SEC + 86400))
+    SEG="$SEGMENTS_DIR/segment_$(printf '%04d' $CHUNK)"
+    if [ "$CHUNK" -le "$DONE_CHUNKS" ]; then
+        START=$END
+        continue
+    fi
 
     CHUNK_START=$(date +%s)
     ts "[Chunk $CHUNK/$TOTAL_CHUNKS] ${START}s → ${END}s"
@@ -108,32 +131,39 @@ while [ "$START" -lt "$DURATION" ]; do
     rm -rf "$WORK_DIR/frames" "$WORK_DIR/upscaled"
     mkdir -p "$WORK_DIR/frames" "$WORK_DIR/upscaled"
 
-    # Extract frames: IVTC only if telecined (see detect_ivtc_chain), then DCT-aware
-    # MPEG-2 deblock (spp) and scale to 960x540 (correct 16:9, handles anamorphic DAR).
-    # No fps filter — IVTC changes the frame rate, so encode fps is measured per chunk below.
-    ffmpeg -y -ss "$START" -t "$CHUNK_SEC" -i "$INPUT" \
-        -vf "${IVTC_CHAIN}spp=quality=4,scale=${HALF_W}:${HALF_H}:flags=lanczos" -vsync vfr -q:v 1 -compression_level 1 \
-        "$WORK_DIR/frames/frame_%08d.png" -an \
-        2>&1 | grep -E "^frame=" | tail -1
+    # Extract frames: IVTC only if telecined (see detect_ivtc_chain), trim to this
+    # chunk's [0, CHUNK_SEC) (input -t overshoots 2s so yadif/decimate see the
+    # boundary), scale to ${HALF_W}x${HALF_H} (corrects the anamorphic DAR), and log each
+    # frame's real pts via showinfo — the encode's frame rate is nominal; real
+    # timestamps are stamped back at the final mux.
+    ffmpeg -y -nostdin -nostats -ss "$START" -t "$((CHUNK_LIMIT + 2))" -i "$INPUT" \
+        -map 0:v:0 -an -sn \
+        -vf "${IVTC_CHAIN}trim=end=${CHUNK_LIMIT},scale=${HALF_W}:${HALF_H}:flags=lanczos,showinfo" \
+        -fps_mode passthrough -q:v 1 -compression_level 1 \
+        "$WORK_DIR/frames/frame_%08d.png" > "$WORK_DIR/extract_$CHUNK.log" 2>&1
+    EXTRACT_EXIT=$?
+    PTS_COUNT=$(vfr_save_pts "$WORK_DIR/extract_$CHUNK.log" "$SEG.pts")
 
     FRAME_COUNT=$(ls "$WORK_DIR/frames" | wc -l)
     echo "  Frames: $FRAME_COUNT"
 
+    if [ "$EXTRACT_EXIT" -ne 0 ]; then
+        echo "  ERROR: frame extraction failed (exit $EXTRACT_EXIT) — segments preserved in $SEGMENTS_DIR"
+        grep -v showinfo "$WORK_DIR/extract_$CHUNK.log" | tail -5
+        rm -f "$SEG.pts"
+        exit 1
+    fi
     if [ "$FRAME_COUNT" -eq 0 ]; then
         echo "  No frames extracted, skipping."
+        rm -f "$SEG.pts"
         START=$END
         continue
     fi
-
-    # Per-chunk fps: decimate changes frame count, so encode fps must be measured, not fixed.
-    # Final chunk uses full-precision duration (integer DURATION truncates and plays fast).
-    if [ "$END" -eq "$DURATION" ]; then
-        SPAN=$(echo "$DURATION_F - $START" | bc)
-    else
-        SPAN=$((END - START))
+    if [ "$PTS_COUNT" -ne "$FRAME_COUNT" ]; then
+        echo "  ERROR: $PTS_COUNT timestamps for $FRAME_COUNT frames — segments preserved in $SEGMENTS_DIR"
+        rm -f "$SEG.pts"
+        exit 1
     fi
-    CHUNK_FPS=$(echo "scale=6; $FRAME_COUNT / $SPAN" | bc)
-    echo "  FPS: $CHUNK_FPS"
 
     # Upscale — animevideov3 is purpose-built for video frames (better temporal consistency than cunet)
     UPSCALE_LOG="$WORK_DIR/upscale_$CHUNK.log"
@@ -161,58 +191,49 @@ while [ "$START" -lt "$DURATION" ]; do
         exit 1
     fi
 
+    # RGB → BT.709 matrix (HD), tagged; bare HEVC stream, nominal rate (see extract).
     ENCODE_LOG="$WORK_DIR/encode_$CHUNK.log"
-    ffmpeg -y \
-        -framerate "$CHUNK_FPS" \
+    ffmpeg -y -nostdin \
+        -framerate 24000/1001 \
         -i "$WORK_DIR/upscaled/frame_%08d.png" \
+        -vf "scale=out_color_matrix=bt709:out_range=tv" \
         -c:v libx265 -crf 18 -preset medium -pix_fmt yuv420p \
-        "$SEGMENT" > "$ENCODE_LOG" 2>&1
+        -color_primaries bt709 -color_trc bt709 -colorspace bt709 \
+        -f hevc "$SEG.hevc" > "$ENCODE_LOG" 2>&1
     ENCODE_EXIT=$?
+    ENC_COUNT=$(ffprobe -v error -select_streams v:0 -count_packets \
+        -show_entries stream=nb_read_packets -of default=noprint_wrappers=1:nokey=1 "$SEG.hevc" 2>/dev/null)
 
-    if [ "$ENCODE_EXIT" -ne 0 ] || [ ! -s "$SEGMENT" ]; then
-        echo "  ERROR: segment encoding failed (ffmpeg exit $ENCODE_EXIT) — segments preserved in $SEGMENTS_DIR"
+    if [ "$ENCODE_EXIT" -ne 0 ] || [ "$ENC_COUNT" != "$FRAME_COUNT" ]; then
+        echo "  ERROR: segment encoding failed (ffmpeg exit $ENCODE_EXIT, $ENC_COUNT/$FRAME_COUNT frames) — segments preserved in $SEGMENTS_DIR"
         tail -5 "$ENCODE_LOG"
+        rm -f "$SEG.hevc" "$SEG.pts"
         exit 1
     fi
 
-    echo "file '$SEGMENT'" >> "$SEGMENT_LIST"
+    echo "$(basename "$SEG") $START" >> "$SEGMENT_LIST"
     CHUNK_ELAPSED=$(( $(date +%s) - CHUNK_START ))
-    ts "  Chunk $CHUNK done in ${CHUNK_ELAPSED}s — segment saved: $(basename "$SEGMENT")"
+    ts "  Chunk $CHUNK done in ${CHUNK_ELAPSED}s — segment saved: $(basename "$SEG").hevc"
     START=$END
 done
 
 echo ""
-MUXED_TMP="/tmp/upscale_muxed_$$.mkv"
-ts "[Final] Concatenating $TOTAL_CHUNKS segments + muxing audio/subtitles..."
-ffmpeg -y \
-    -f concat -safe 0 -i "$SEGMENT_LIST" \
-    -i "$INPUT" \
-    -map 0:v \
-    -map 1:a \
-    -map 1:s? \
-    -c:v copy \
-    -c:a copy \
-    -c:s copy \
-    -metadata title="$(basename "$INPUT" .mkv) [anime 16:9 upscaled 1080p]" \
-    "$MUXED_TMP"
-CONCAT_EXIT=$?
-
-if [ "$CONCAT_EXIT" -ne 0 ] || [ ! -f "$MUXED_TMP" ]; then
-    echo ""
-    echo "=== ERROR: Final concat failed (exit $CONCAT_EXIT) — segments preserved in $SEGMENTS_DIR ==="
+FINAL_TMP="/tmp/upscale_final_$$.mkv"
+ts "[Final] Joining $(wc -l < "$SEGMENT_LIST") segments + stamping per-frame timestamps..."
+if ! vfr_build_video "$SEGMENTS_DIR" "$SRC_START" "$WORK_DIR/video.hevc" "$WORK_DIR/timestamps.txt"; then
+    echo "=== ERROR: joining segments failed — segments preserved in $SEGMENTS_DIR ==="
     exit 1
 fi
-
+ts "[Final] Muxing video + source audio/subtitles/chapters with mkvmerge..."
+if ! vfr_mux "$WORK_DIR/video.hevc" "$WORK_DIR/timestamps.txt" "$INPUT" \
+        "$(basename "$INPUT" .mkv) [anime 16:9 upscaled 1080p]" "$FINAL_TMP"; then
+    rm -f "$FINAL_TMP"
+    echo "=== ERROR: mkvmerge failed — segments preserved in $SEGMENTS_DIR ==="
+    exit 1
+fi
+ts "[Final] Copying to destination..."
+vfr_install "$FINAL_TMP" "$OUTPUT" || exit 1
 rm -rf "$SEGMENTS_DIR"
-
-ts "[Final] Rebuilding seek index with mkvmerge..."
-mkvmerge -o "$OUTPUT" "$MUXED_TMP" 2>&1 | grep -E "Progress: 100%|Warning|Error" | tail -2
-MKVMERGE_EXIT=${PIPESTATUS[0]}
-if [ "$MKVMERGE_EXIT" -ge 2 ]; then
-    echo "=== ERROR: mkvmerge failed (exit $MKVMERGE_EXIT) — muxed file preserved at $MUXED_TMP ==="
-    exit 1
-fi
-rm -f "$MUXED_TMP"
 
 echo ""
 ts "=== Done! ==="

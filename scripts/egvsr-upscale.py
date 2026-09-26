@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """EGVSR 4x upscaler for live-action video. Processes an entire MKV in chunks,
 keeping model and recurrent state (hr_prev/lr_prev) alive across chunk boundaries.
-Writes hevc_vaapi segment MKVs to --segments-dir; shell handles final concat + mux.
+Writes hevc_vaapi segment MKVs plus per-frame pts files (segment_NNNN.pts) to
+--segments-dir; the shell stamps the real timestamps back at the final mux
+(lib/vfr-timing.sh — mixed 23.976/29.97 DVDs used to stutter and drift).
 
 Usage:
     HSA_OVERRIDE_GFX_VERSION=10.3.0 python3 egvsr-upscale.py \
@@ -107,12 +109,40 @@ def detect_telecine(input_mkv, duration):
     if total == 0:
         return False
     # 3:2 pulldown repeats ~20% of fields; 5% clears noise/false positives.
-    return (agg['Top'] + agg['Bottom']) / total > 0.05
+    if (agg['Top'] + agg['Bottom']) / total <= 0.05:
+        return False
+    # decimate assumes a uniform 29.97 input and re-times its output as even
+    # 23.976; on discs mixing soft-pulldown film (packets at 33/50 ms) with
+    # hard-telecined sections it drops real frames and compresses the timeline.
+    if _has_soft_pulldown(input_mkv, starts):
+        ts('Telecine: repeated fields found, but soft pulldown present — IVTC skipped')
+        return False
+    return True
 
 
-def extract_frames(input_mkv, start, duration, in_w, in_h, frames_dir,
+def _has_soft_pulldown(input_mkv, starts):
+    """True if >1% of packet gaps in the sampled windows are 45-100 ms (soft pulldown)."""
+    pts = []
+    for start in starts:
+        out = subprocess.run(
+            ['ffprobe', '-v', 'error', '-select_streams', 'v:0',
+             '-read_intervals', f'{start}%+60', '-show_entries', 'packet=pts_time',
+             '-of', 'csv=p=0', input_mkv],
+            capture_output=True, text=True).stdout
+        pts.extend(float(x) for x in out.split() if x not in ('', 'N/A'))
+    pts.sort()
+    gaps = [b - a for a, b in zip(pts, pts[1:])]
+    return bool(gaps) and sum(0.045 < g < 0.1 for g in gaps) / len(gaps) > 0.01
+
+
+def extract_frames(input_mkv, start, limit, in_w, in_h, frames_dir, pts_path,
                    denoise='none', telecined=False):
-    """Extract scaled frames for one chunk. Returns frame count.
+    """Extract scaled frames for one chunk; write each frame's pts (seconds from
+    the chunk start) to pts_path. Returns frame count.
+
+    limit: chunk length in seconds; trim cuts at exactly this chunk-relative time
+           so chunks partition the film (input -t overshoots 2s so yadif/decimate
+           see the boundary). Pass a huge value for the final chunk (to EOF).
 
     telecined: when True the source carries 3:2 pulldown and fieldmatch+decimate
                reverse it to clean 23.976fps film. When False (progressive or
@@ -132,34 +162,39 @@ def extract_frames(input_mkv, start, duration, in_w, in_h, frames_dir,
     vf.append('yadif=mode=0:parity=-1:deint=all')
     if telecined:
         vf.append('decimate')
-    vf += [
-        # MPEG-2 postprocessing: removes 8x8 DCT block edges before EGVSR sees the frame.
-        # spp (Simple PostProcessing) averages multiple shifted DCT transforms — it targets
-        # the 8x8 block structure specifically, removing grid artifacts with less collateral
-        # blur than the generic deblock filter. quality=4 balances speed vs thoroughness.
-        'spp=quality=4',
-    ]
+    vf.append(f'trim=end={limit}')
+    # (An spp deblock sat here until Sept 2026 but was a silent no-op: ffmpeg only
+    # hands it QP tables with -export_side_data venc_params.)
     if denoise == 'spatial':
-        # Mild spatial denoise only — spp already smooths block boundaries so full-strength
-        # hqdn3d on top causes mushiness on clean digital sources.
+        # Mild spatial denoise only — full-strength hqdn3d causes mushiness on
+        # clean digital sources.
         vf.append('hqdn3d=2:1.5:0:0')
     elif denoise == 'full':
         vf.append('hqdn3d=2:1.5:6:4.5')
     vf.append(f'scale={in_w}:{in_h}:flags=lanczos')
+    vf.append('showinfo')
     cmd = [
-        'ffmpeg', '-y',
+        'ffmpeg', '-y', '-nostdin', '-nostats',
         '-ss', str(start),
-        '-t', str(duration),
+        '-t', str(limit + 2),
         '-i', input_mkv,
+        '-map', '0:v:0',
         '-vf', ','.join(vf),
         # compression_level 1: extraction is serial with the GPU, so minimise
         # PNG deflate CPU cost (default level burns real time on the critical path).
-        '-vsync', 'vfr', '-q:v', '1', '-compression_level', '1',
+        '-fps_mode', 'passthrough', '-q:v', '1', '-compression_level', '1',
+        '-an', '-sn',
         os.path.join(frames_dir, 'frame_%08d.png'),
-        '-an',
     ]
-    subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    return len(glob.glob(os.path.join(frames_dir, '*.png')))
+    res = subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL,
+                         stderr=subprocess.PIPE, text=True, errors='replace')
+    pts = re.findall(r'showinfo.* pts_time:(-?[0-9.e+-]+)', res.stderr)
+    with open(pts_path, 'w') as f:
+        f.writelines(p + '\n' for p in pts)
+    count = len(glob.glob(os.path.join(frames_dir, '*.png')))
+    if count != len(pts):
+        raise RuntimeError(f'{len(pts)} timestamps for {count} frames')
+    return count
 
 
 def warmup_state(model, lr_cur, lr_prev, hr_prev, n):
@@ -171,7 +206,7 @@ def warmup_state(model, lr_cur, lr_prev, hr_prev, n):
     return hr_prev, lr_cur.detach()
 
 
-def process_chunk(frames_dir, chunk_fps, out_w, out_h, segment_path,
+def process_chunk(frames_dir, out_w, out_h, segment_path,
                   model, hr_prev, lr_prev, scene_warmup=8, cold_start=False):
     """Run EGVSR on extracted frames, encode to VAAPI segment.
     Returns updated (hr_prev, lr_prev) — state is NOT reset between chunks.
@@ -187,9 +222,12 @@ def process_chunk(frames_dir, chunk_fps, out_w, out_h, segment_path,
         '-vaapi_device', '/dev/dri/renderD128',
         '-f', 'rawvideo', '-pixel_format', 'bgr24',
         '-video_size', f'{out_w}x{out_h}',
-        '-framerate', str(chunk_fps),
+        # Nominal rate — real per-frame timestamps are stamped at the final mux.
+        '-framerate', '24000/1001',
         '-i', 'pipe:0',
-        '-vf', 'format=nv12,hwupload',
+        # RGB → BT.709 matrix (HD) before upload, and tag it.
+        '-vf', 'scale=out_color_matrix=bt709:out_range=tv,format=nv12,hwupload',
+        '-color_primaries', 'bt709', '-color_trc', 'bt709', '-colorspace', 'bt709',
         # AMD VCN HEVC is markedly less efficient than libx265; qp18 claws back quality for archival output.
         '-c:v', 'hevc_vaapi', '-qp', '18', '-g', '48',
         segment_path,
@@ -274,6 +312,9 @@ def main():
     parser.add_argument('--duration', type=int, required=True,
                         help='Total source duration in integer seconds')
     parser.add_argument('--chunk-sec', type=int, default=600)
+    parser.add_argument('--resume-from', type=int, default=0,
+                        help='Chunks already finished in --segments-dir (skipped; the '
+                             'first processed chunk cold-starts temporal state)')
     parser.add_argument('--scene-warmup', type=int, default=3,
                         help='Model passes (no output) run at cold start and hard scene '
                              'cuts to settle temporal state before writing frames (default: 3)')
@@ -315,14 +356,18 @@ def main():
     lr_prev = None
     cold_start = True
 
-    segments_txt = open(segment_list_path, 'w')
+    segments_txt = open(segment_list_path, 'a')
     try:
         for chunk_idx in range(total_chunks):
             start = chunk_idx * args.chunk_sec
             end = min(start + args.chunk_sec, args.duration)
-            chunk_dur = end - start
-            segment_path = os.path.join(args.segments_dir,
-                                        f'segment_{chunk_idx + 1:04d}.mkv')
+            seg_name = f'segment_{chunk_idx + 1:04d}'
+            segment_path = os.path.join(args.segments_dir, seg_name + '.mkv')
+            pts_path = os.path.join(args.segments_dir, seg_name + '.pts')
+            if chunk_idx < args.resume_from:
+                continue
+            # Final chunk runs uncapped to EOF (--duration is truncated to whole seconds).
+            limit = args.chunk_sec if chunk_idx < total_chunks - 1 else args.chunk_sec + 86400
 
             chunk_wall_start = time.time()
             ts(f'[Chunk {chunk_idx + 1}/{total_chunks}] {start}s → {end}s')
@@ -330,8 +375,8 @@ def main():
             with tempfile.TemporaryDirectory() as frames_dir:
                 try:
                     frame_count = extract_frames(
-                        args.input, start, chunk_dur,
-                        args.in_width, args.in_height, frames_dir,
+                        args.input, start, limit,
+                        args.in_width, args.in_height, frames_dir, pts_path,
                         denoise=args.denoise, telecined=telecined,
                     )
                 except subprocess.CalledProcessError as e:
@@ -341,18 +386,7 @@ def main():
                     ts('  No frames extracted, skipping.')
                     continue
 
-                # The last chunk extracts to true EOF, but chunk_dur is bounded by
-                # the truncated integer --duration; dividing by it overstates the
-                # tail fps (tail plays fast → A/V drift). Use the true remaining span.
-                if chunk_idx == total_chunks - 1:
-                    span = duration_f - start
-                else:
-                    span = chunk_dur
-                if span <= 0:
-                    span = chunk_dur
-                chunk_fps = frame_count / span
-                print(f'  Frames: {frame_count}  FPS: {chunk_fps:.6f}',
-                      file=sys.stderr, flush=True)
+                print(f'  Frames: {frame_count}', file=sys.stderr, flush=True)
 
                 if hr_prev is None:
                     img0 = cv2.imread(
@@ -365,7 +399,7 @@ def main():
                                          dtype=torch.float32).cuda()
 
                 hr_prev, lr_prev, scene_changes = process_chunk(
-                    frames_dir, chunk_fps,
+                    frames_dir,
                     args.out_width, args.out_height,
                     segment_path, model, hr_prev, lr_prev,
                     scene_warmup=args.scene_warmup,
@@ -373,7 +407,7 @@ def main():
                 )
                 cold_start = False
 
-            segments_txt.write(f"file '{segment_path}'\n")
+            segments_txt.write(f'{seg_name} {start}\n')
             segments_txt.flush()
 
             elapsed = int(time.time() - chunk_wall_start)
@@ -381,7 +415,6 @@ def main():
             if scene_changes:
                 notes.append(f'scene cuts: {scene_changes}')
             ts(f'  Chunk {chunk_idx + 1} done in {elapsed}s'
-               f' @ {chunk_fps:.3f} fps'
                f' — segment saved: {os.path.basename(segment_path)}'
                + (f'  [{", ".join(notes)}]' if notes else ''))
 

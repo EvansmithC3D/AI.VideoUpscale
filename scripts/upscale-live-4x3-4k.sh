@@ -29,7 +29,10 @@ SCALE=4
 OUT_W=$((QUARTER_W * SCALE))
 OUT_H=$((QUARTER_H * SCALE))
 SCRIPT_DIR="$(dirname "$(readlink -f "$0")")"
-SEGMENTS_DIR="/tmp/upscale_segments_$$"
+. "$SCRIPT_DIR/lib/vfr-timing.sh"
+# Stable per input: rerunning the same job resumes after the last finished chunk.
+SEGMENTS_DIR=$(vfr_segments_dir "$INPUT")
+WORK_DIR="/tmp/upscale_work_$$"
 
 if [[ -z "$INPUT" || -z "$OUTPUT" ]]; then
     echo "Usage: $0 <input.mkv> <output.mkv> [chunk_minutes=10]"
@@ -58,8 +61,12 @@ TOTAL_CHUNKS=$(( (DURATION + CHUNK_SEC - 1) / CHUNK_SEC ))
 echo "Duration: ${DURATION}s  FPS: $FPS_ROUNDED  Chunks: $TOTAL_CHUNKS"
 echo ""
 
-mkdir -p "$SEGMENTS_DIR"
+FINGERPRINT="$(basename "$0")|$(stat -c '%s %Y' "$INPUT")|$CHUNK_SEC|$DENOISE|${OUT_W}x${OUT_H}"
+DONE_CHUNKS=$(vfr_resume_init "$SEGMENTS_DIR" "$FINGERPRINT")
+[ "$DONE_CHUNKS" -gt 0 ] && echo "Resuming: $DONE_CHUNKS chunk(s) already done in $SEGMENTS_DIR"
 SEGMENT_LIST="$SEGMENTS_DIR/segments.txt"
+mkdir -p "$WORK_DIR"
+trap 'rm -rf "$WORK_DIR"' EXIT
 
 ts "[Processing] Launching EGVSR pipeline (single process, state persists across chunks)..."
 HSA_OVERRIDE_GFX_VERSION=10.3.0 python3 "$SCRIPT_DIR/egvsr-upscale.py" \
@@ -71,7 +78,8 @@ HSA_OVERRIDE_GFX_VERSION=10.3.0 python3 "$SCRIPT_DIR/egvsr-upscale.py" \
     --out-height "$OUT_H" \
     --duration "$DURATION" \
     --chunk-sec "$CHUNK_SEC" \
-    --denoise "$DENOISE"
+    --denoise "$DENOISE" \
+    --resume-from "$DONE_CHUNKS"
 PYTHON_EXIT=$?
 
 if [ "$PYTHON_EXIT" -ne 0 ]; then
@@ -80,42 +88,22 @@ if [ "$PYTHON_EXIT" -ne 0 ]; then
 fi
 
 echo ""
-# Concat to a local /tmp file, not the NFS output dir: writing the concat there
-# then re-reading it for mkvmerge would push the full film over NFS twice.
-MUXED_TMP="/tmp/upscale_muxed_$$.mkv"
-ts "[Final] Concatenating $TOTAL_CHUNKS segments + muxing audio/subtitles..."
-ffmpeg -y \
-    -f concat -safe 0 -i "$SEGMENT_LIST" \
-    -i "$INPUT" \
-    -map 0:v \
-    -map 1:a \
-    -map 1:s? \
-    -c:v copy \
-    -c:a copy \
-    -c:s copy \
-    -metadata title="$(basename "$INPUT" .mkv) [live 4:3 upscaled 4K]" \
-    "$MUXED_TMP" 2>&1 | grep -E "frame=.*fps=|time=" | tail -1
-FFMPEG_EXIT=${PIPESTATUS[0]}
-
-if [ "$FFMPEG_EXIT" -ne 0 ] || [ ! -f "$MUXED_TMP" ]; then
-    echo ""
-    echo "=== ERROR: Final concat failed (exit $FFMPEG_EXIT) — segments preserved in $SEGMENTS_DIR ==="
+FINAL_TMP="/tmp/upscale_final_$$.mkv"
+ts "[Final] Joining $(wc -l < "$SEGMENT_LIST") segments + stamping per-frame timestamps..."
+if ! vfr_build_video "$SEGMENTS_DIR" "$(vfr_src_start "$INPUT")" "$WORK_DIR/video.hevc" "$WORK_DIR/timestamps.txt"; then
+    echo "=== ERROR: joining segments failed — segments preserved in $SEGMENTS_DIR ==="
     exit 1
 fi
-
+ts "[Final] Muxing video + source audio/subtitles/chapters with mkvmerge..."
+if ! vfr_mux "$WORK_DIR/video.hevc" "$WORK_DIR/timestamps.txt" "$INPUT" \
+        "$(basename "$INPUT" .mkv) [live 4:3 upscaled 4K]" "$FINAL_TMP"; then
+    rm -f "$FINAL_TMP"
+    echo "=== ERROR: mkvmerge failed — segments preserved in $SEGMENTS_DIR ==="
+    exit 1
+fi
+ts "[Final] Copying to destination..."
+vfr_install "$FINAL_TMP" "$OUTPUT" || exit 1
 rm -rf "$SEGMENTS_DIR"
-
-ts "[Final] Rebuilding seek index with mkvmerge..."
-mkvmerge --cues 0:all --cues 1:all --cues 2:all --cues 3:all --cues 4:all \
-  -o "$OUTPUT" "$MUXED_TMP" 2>&1 | grep -E "Progress: 100%|Warning|Error" | tail -2
-MKVMERGE_EXIT=${PIPESTATUS[0]}
-
-# mkvmerge exit 1 = warnings only (acceptable); >= 2 = hard error.
-if [ "$MKVMERGE_EXIT" -ge 2 ]; then
-    echo "=== ERROR: mkvmerge failed (exit $MKVMERGE_EXIT) — muxed file preserved: $MUXED_TMP ==="
-    exit 1
-fi
-rm -f "$MUXED_TMP"
 
 echo ""
 ts "=== Done! ==="

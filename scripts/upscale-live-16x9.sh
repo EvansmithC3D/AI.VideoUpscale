@@ -9,23 +9,25 @@
 #
 # Per chunk, decode → SPAN → x265 run concurrently as one raw-video pipe
 # (ffmpeg | span-upscale.py | ffmpeg), so no frame touches disk. Each chunk leaves
-# segment_NNNN.hevc (bare x265 stream) and segment_NNNN.pts (per-frame timestamps,
-# seconds from the chunk start) in SEGMENTS_DIR; they survive a crash for resume.
+# segment_NNNN.hevc (bare x265 stream) and segment_NNNN.pts (per-frame timestamps)
+# in a segments dir named after the input: rerunning the same job (same settings)
+# resumes after the last finished chunk.
 #
 # Timing: the pipe carries no timestamps, so the extract's showinfo records every
-# frame's real pts and the final mkvmerge applies them all as one timestamp file.
-# DVDs often mix 23.976 film with 29.97 video-rate sections; stamping each frame
-# with its true time keeps those sections in sync (the old per-chunk average fps
-# spread them evenly, causing stutter and multi-second mid-chunk audio drift).
-# Chunks are cut with trim on those same timestamps, so they partition the film
-# exactly — no frame is duplicated or lost at a boundary.
+# frame's real pts and the final mkvmerge stamps them back (lib/vfr-timing.sh has
+# the full rationale — mixed 23.976/29.97 DVDs used to stutter and drift).
+#
+# No MPEG-2 deblock: `spp` was in the chain until Sept 2026 but was a silent no-op
+# (ffmpeg only hands it QP tables with -export_side_data venc_params). Enabled for
+# real it measurably softened texture with no visible deblocking gain — SPAN
+# multijpg already handles DVD block noise.
 #
 # denoise: pre-extract grain/noise handling. hqdn3d values mirror egvsr-upscale.py so the
 #   1080p and 4K paths treat the same source identically. Defaults by year parsed from the
 #   filename: pre-2000 → none (preserve grain), 2000+ → spatial.
-#   "none"    — spp deblock only, no hqdn3d (preserve film grain; best for pre-2000 film)
-#   "spatial" — spp deblock + hqdn3d=2:1.5:0:0 (per-frame spatial only)
-#   "full"    — spp deblock + hqdn3d=2:1.5:6:4.5 (spatial + temporal)
+#   "none"    — no hqdn3d (preserve film grain; best for pre-2000 film)
+#   "spatial" — hqdn3d=2:1.5:0:0 (per-frame spatial only)
+#   "full"    — hqdn3d=2:1.5:6:4.5 (spatial + temporal)
 #
 # postfilter: ffmpeg -vf expression applied to upscaled frames before the final resize.
 #   "none"                   — skip
@@ -50,7 +52,7 @@ if [[ -z "$DENOISE" ]]; then
     fi
 fi
 
-# Map denoise level to an hqdn3d filter segment appended after spp (empty for 'none').
+# Map denoise level to an hqdn3d filter segment appended after trim (empty for 'none').
 case "$DENOISE" in
     none)    DENOISE_VF="" ;;
     spatial) DENOISE_VF=",hqdn3d=2:1.5:0:0" ;;
@@ -64,8 +66,9 @@ SCALE=2
 SPAN_MODEL="/usr/local/share/span-models/2xNomosUni_span_multijpg.safetensors"
 SPAN_PY="/home/evanna/.venvs/span-upscale/bin/python3"   # spandrel venv over the system ROCm torch
 SCRIPT_DIR="$(dirname "$(readlink -f "$0")")"
+. "$SCRIPT_DIR/lib/vfr-timing.sh"
 WORK_DIR="/tmp/upscale_work_$$"
-SEGMENTS_DIR="/tmp/upscale_segments_$$"
+SEGMENTS_DIR=""   # set below from the input path (stable, for resume)
 SWS="lanczos+accurate_rnd+full_chroma_int"
 
 if [[ -z "$INPUT" || -z "$OUTPUT" ]]; then
@@ -106,6 +109,13 @@ detect_ivtc_chain() {
     local total=$((n_total + t_total + b_total))
     if [ "$total" -gt 0 ] && awk -v r=$((t_total + b_total)) -v t="$total" \
             'BEGIN { exit !(r / t > 0.05) }'; then
+        if vfr_has_soft_pulldown "$input" "$dur"; then
+            # Mixed soft/hard telecine: decimate would drop real frames and
+            # re-time them (see vfr_has_soft_pulldown); deinterlace only.
+            echo "Telecine: repeated fields found, but soft pulldown present — IVTC skipped" >&2
+            echo "yadif=mode=0:parity=-1:deint=all,"
+            return
+        fi
         echo "fieldmatch=order=auto:combmatch=sc,yadif=mode=0:parity=-1:deint=all,decimate,"
     else
         echo "yadif=mode=0:parity=-1:deint=all,"
@@ -137,9 +147,7 @@ DURATION_F=$(ffprobe -v error -show_entries format=duration \
 DURATION=${DURATION_F%.*}
 # ffmpeg rebases timestamps to (start_time + -ss); mkvmerge keeps the source's
 # audio at its original timestamps, so add start_time back when stamping video.
-SRC_START=$(ffprobe -v error -show_entries format=start_time \
-    -of default=noprint_wrappers=1:nokey=1 "$INPUT")
-[[ "$SRC_START" =~ ^-?[0-9.]+$ ]] || SRC_START=0
+SRC_START=$(vfr_src_start "$INPUT")
 CHUNK_SEC=$((CHUNK_MIN * 60))
 TOTAL_CHUNKS=$(( (DURATION + CHUNK_SEC - 1) / CHUNK_SEC ))
 
@@ -153,7 +161,11 @@ else
 fi
 echo ""
 
-mkdir -p "$WORK_DIR" "$SEGMENTS_DIR"
+mkdir -p "$WORK_DIR"
+SEGMENTS_DIR=$(vfr_segments_dir "$INPUT")
+FINGERPRINT="$(basename "$0")|$(stat -c '%s %Y' "$INPUT")|$CHUNK_SEC|$DENOISE|$POSTFILTER|$IVTC_CHAIN|$SPAN_MODEL|${OUT_W}x${OUT_H}"
+DONE_CHUNKS=$(vfr_resume_init "$SEGMENTS_DIR" "$FINGERPRINT")
+[ "$DONE_CHUNKS" -gt 0 ] && echo "Resuming: $DONE_CHUNKS chunk(s) already done in $SEGMENTS_DIR"
 
 # cleanup must NEVER touch SEGMENTS_DIR (per-chunk segments there survive a
 # crash and drive a resume).
@@ -164,7 +176,6 @@ trap cleanup EXIT
 
 # One "segment_NNNN <chunk start seconds>" line per finished chunk, in order.
 SEGMENT_LIST="$SEGMENTS_DIR/segments.txt"
-> "$SEGMENT_LIST"
 
 POSTFILTER_VF=""
 if [[ "$POSTFILTER" != "none" ]]; then
@@ -184,21 +195,29 @@ while [ "$START" -lt "$DURATION" ]; do
     CHUNK=$((CHUNK + 1))
     END=$((START + CHUNK_SEC))
     [ "$END" -gt "$DURATION" ] && END=$DURATION
+    # Chunks are cut at CHUNK_SEC; the final chunk runs uncapped to EOF (DURATION is
+    # truncated to whole seconds, so a cap there could drop the last frames).
+    CHUNK_LIMIT=$CHUNK_SEC
+    [ "$END" -ge "$DURATION" ] && CHUNK_LIMIT=$((CHUNK_SEC + 86400))
     SEG="$SEGMENTS_DIR/segment_$(printf '%04d' $CHUNK)"
+    if [ "$CHUNK" -le "$DONE_CHUNKS" ]; then
+        START=$END
+        continue
+    fi
 
     CHUNK_START=$(date +%s)
     ts "[Chunk $CHUNK/$TOTAL_CHUNKS] ${START}s → ${END}s"
 
     # Decode → SPAN → x265 as one pipe. Extract: IVTC only if telecined (see
     # detect_ivtc_chain), trim to [0, CHUNK_SEC) of chunk-relative time (input -t
-    # overshoots by 2s so yadif/decimate see the boundary frames), spp DCT-aware
-    # deblock + year-gated hqdn3d, showinfo to log each frame's pts, then rgb24
+    # overshoots by 2s so yadif/decimate see the boundary frames), year-gated
+    # hqdn3d, showinfo to log each frame's pts, then rgb24
     # (BT.601 source matrix). Encode: postfilter at SPAN resolution (cheaper), one
     # lanczos resize to the target with an explicit BT.709 matrix, x265 to a bare
     # HEVC stream — the -framerate is nominal; real timestamps are applied at mux.
-    ffmpeg -nostdin -hide_banner -nostats -ss "$START" -t "$((CHUNK_SEC + 2))" -i "$INPUT" \
+    ffmpeg -nostdin -hide_banner -nostats -ss "$START" -t "$((CHUNK_LIMIT + 2))" -i "$INPUT" \
         -map 0:v:0 -an -sn \
-        -vf "${IVTC_CHAIN}trim=end=${CHUNK_SEC},spp=quality=4${DENOISE_VF},showinfo" \
+        -vf "${IVTC_CHAIN}trim=end=${CHUNK_LIMIT}${DENOISE_VF},showinfo" \
         -fps_mode passthrough -sws_flags "$SWS" \
         -f rawvideo -pix_fmt rgb24 - \
         2> "$WORK_DIR/extract_$CHUNK.log" \
@@ -217,9 +236,7 @@ while [ "$START" -lt "$DURATION" ]; do
         2> "$WORK_DIR/encode_$CHUNK.log"
     RCS=("${PIPESTATUS[@]}")
 
-    grep -oE 'showinfo.* pts_time:-?[0-9.e+-]+' "$WORK_DIR/extract_$CHUNK.log" \
-        | sed 's/.*pts_time://' > "$SEG.pts"
-    PTS_COUNT=$(wc -l < "$SEG.pts")
+    PTS_COUNT=$(vfr_save_pts "$WORK_DIR/extract_$CHUNK.log" "$SEG.pts")
     grep -E "SPAN|Done:|ERROR" "$WORK_DIR/upscale_$CHUNK.log"
 
     if [ "${RCS[0]}" -eq 0 ] && [ "$PTS_COUNT" -eq 0 ]; then
@@ -255,58 +272,17 @@ done
 
 echo ""
 FINAL_TMP="/tmp/upscale_final_$$.mkv"
-ALL_HEVC="$WORK_DIR/video.hevc"
-ALL_TS="$WORK_DIR/timestamps.txt"
 ts "[Final] Joining $(wc -l < "$SEGMENT_LIST") segments + stamping per-frame timestamps..."
-
-# Each segment starts with an IDR + parameter sets, so the bare streams concatenate
-# into one valid HEVC stream. Timestamps become absolute ms (chunk start + frame
-# pts + source start_time), then get a [1,2,1]/4 smoothing: soft-telecined DVD film
-# decodes with alternating 33/50 ms frame spacing (the 3:2 field cadence), which the
-# smoothing turns into an even 41.7 ms (true 23.976 — smooth playback, and players
-# report 23.976 fps) while uniformly spaced 29.97 video sections pass through
-# unchanged. It preserves order and moves a frame by at most a quarter of the
-# local spacing difference (~4 ms on 3:2 cadence), far inside lip-sync tolerance.
-# Any frame not strictly after its predecessor is nudged 1 µs forward (there
-# should be none — logged if it happens).
-> "$ALL_HEVC"
-echo "# timestamp format v2" > "$ALL_TS"
-while read -r seg start; do
-    cat "$SEGMENTS_DIR/$seg.hevc" >> "$ALL_HEVC" || fail "joining $seg.hevc"
-    awk -v off="$start" -v s0="$SRC_START" '{ printf "%.6f\n", (off + s0 + $1) * 1000 }' \
-        "$SEGMENTS_DIR/$seg.pts" >> "$ALL_TS"
-done < "$SEGMENT_LIST"
-awk 'NR == 1 { print; next }
-     { t[++n] = $1 }
-     END {
-         for (i = 1; i <= n; i++) {
-             s = (i == 1 || i == n) ? t[i] : (t[i-1] + 2 * t[i] + t[i+1]) / 4
-             if (i > 1 && s <= prev) { s = prev + 0.001; fixed++ }
-             printf "%.6f\n", s; prev = s
-         }
-         if (fixed) print "  WARNING: nudged " fixed " non-increasing timestamps" > "/dev/stderr"
-     }' "$ALL_TS" > "$ALL_TS.fixed" && mv "$ALL_TS.fixed" "$ALL_TS"
+vfr_build_video "$SEGMENTS_DIR" "$SRC_START" "$WORK_DIR/video.hevc" "$WORK_DIR/timestamps.txt" \
+    || fail "joining segments"
 
 ts "[Final] Muxing video + source audio/subtitles/chapters with mkvmerge..."
-mkvmerge -o "$FINAL_TMP" \
-    --title "$(basename "$INPUT" .mkv) [upscaled 1080p]" \
-    --timestamps "0:$ALL_TS" "$ALL_HEVC" \
-    -D "$INPUT" 2>&1 | grep -E "Progress: 100%|Warning|Error" | tail -3
-MKVMERGE_EXIT=${PIPESTATUS[0]}
-if [ "$MKVMERGE_EXIT" -ge 2 ] || [ ! -s "$FINAL_TMP" ]; then
-    rm -f "$FINAL_TMP"
-    fail "mkvmerge failed (exit $MKVMERGE_EXIT)"
-fi
+vfr_mux "$WORK_DIR/video.hevc" "$WORK_DIR/timestamps.txt" "$INPUT" \
+    "$(basename "$INPUT" .mkv) [upscaled 1080p]" "$FINAL_TMP" \
+    || { rm -f "$FINAL_TMP"; fail "mkvmerge failed"; }
 
-# Copy beside the destination, then rename: the old output is only replaced once
-# the new one is fully written.
 ts "[Final] Copying to destination..."
-if ! cp "$FINAL_TMP" "$OUTPUT.part" || ! mv -f "$OUTPUT.part" "$OUTPUT"; then
-    rm -f "$OUTPUT.part"
-    echo "=== ERROR: copy to $OUTPUT failed — muxed file preserved at $FINAL_TMP ==="
-    exit 1
-fi
-rm -f "$FINAL_TMP"
+vfr_install "$FINAL_TMP" "$OUTPUT" || exit 1
 rm -rf "$SEGMENTS_DIR"
 
 echo ""
