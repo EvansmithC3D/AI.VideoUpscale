@@ -116,7 +116,7 @@ done|live|1080p|/mnt/jellyfin-movies/Evan Almighty (2007).mkv
 done|live|1080p|/mnt/jellyfin-movies/The Forgotten (2004).mkv
 done|live|1080p|/mnt/jellyfin-movies/Das Boot (1981).mkv
 done|live|1080p|/mnt/jellyfin-movies/Gladiator (2000).mkv
-pending|live|1080p|/mnt/jellyfin-movies/American Psycho (2000).mkv
+done|live|1080p|/mnt/jellyfin-movies/American Psycho (2000).mkv
 pending|live|1080p|/mnt/jellyfin-movies/Catch Me If You Can (2002).mkv
 pending|live|1080p|/mnt/jellyfin-movies/Men in Black II (2002).mkv
 pending|live|1080p|/mnt/jellyfin-movies/The Prestige (2006).mkv
