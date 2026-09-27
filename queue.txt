@@ -126,5 +126,5 @@ done|live|1080p|/mnt/jellyfin-movies/12 Years a Slave (2013).mkv
 done|live|1080p|/mnt/jellyfin-movies/Amadeus (1984).mkv
 done|live|1080p|/mnt/jellyfin-movies/The Hunger Games (2012).mkv
 done|live|1080p|/mnt/jellyfin-movies/Blade Runner (1982).mkv
-pending|live|1080p|/mnt/jellyfin-movies/Terminator 2: Judgment Day (1991).mkv
+done|live|1080p|/mnt/jellyfin-movies/Terminator 2: Judgment Day (1991).mkv
 pending|live|1080p|/mnt/jellyfin-movies/Regarding Henry (1991).mkv
