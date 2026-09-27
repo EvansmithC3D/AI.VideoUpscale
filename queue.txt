@@ -120,7 +120,7 @@ done|live|1080p|/mnt/jellyfin-movies/American Psycho (2000).mkv
 done|live|1080p|/mnt/jellyfin-movies/Catch Me If You Can (2002).mkv
 done|live|1080p|/mnt/jellyfin-movies/Men in Black II (2002).mkv
 done|live|1080p|/mnt/jellyfin-movies/The Prestige (2006).mkv
-pending|live|1080p|/mnt/jellyfin-movies/Star Wars Episode V - The Empire Strikes Back (1980).mkv
+done|live|1080p|/mnt/jellyfin-movies/Star Wars Episode V - The Empire Strikes Back (1980).mkv
 pending|live|1080p|/mnt/jellyfin-movies/Goodfellas (1990).mkv
 pending|live|1080p|/mnt/jellyfin-movies/12 Years a Slave (2013).mkv
 pending|live|1080p|/mnt/jellyfin-movies/Amadeus (1984).mkv
